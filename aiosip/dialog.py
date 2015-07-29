@@ -44,7 +44,7 @@ class Dialog:
                                         'kwargs': kwargs})
 
     def is_callback_registered(self, method, callback):
-        return len(filter(lambda e: e['callable']==callback, self.callbacks[method]))
+        return len(list(filter(lambda e: e['callable']==callback, self.callbacks[method])))
 
     def unregister_callback(self, method, callback):
         for x in filter(lambda e: e['callable']==callback, self.callbacks[method]):
