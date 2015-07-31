@@ -27,6 +27,12 @@ pip-log.txt
 nosetests.xml
 htmlcov
 
+<<<<<<< HEAD
+=======
+# Nike brol
+nike_tests
+
+>>>>>>> a969a83a97e69f2112c9bbdd80a2249ac6504fa4
 # Translations
 *.mo
 
