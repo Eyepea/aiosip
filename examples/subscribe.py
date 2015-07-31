@@ -7,14 +7,27 @@ import aiosip
 def show_notify(dialog, message):
     print(message)
 
-sip_config = {  'srv_host' : 'XXXXXXX',
-                'srv_port'  : '5060',
-                'realm' : 'XXXXXX',
-                'user'  : 'YYYYYY',
-                'pwd'   : 'ZZZZZZ',
-                'local_ip' : '0.0.0.0',
-                'local_port': None
-            }
+# sip_config = {  'srv_host' : 'XXXXXXX',
+#                 'srv_port'  : '5060',
+#                 'realm' : 'XXXXXX',
+#                 'user'  : 'YYYYYY',
+#                 'pwd'   : 'ZZZZZZ',
+#                 'local_ip' : '0.0.0.0',
+#                 'local_port': None
+#             }
+
+
+sip_config = {'realm': 'cca394.sip.allocloud.com',
+              'register_refresh': 30,
+              'pwd': 'f4rq41o2t3iollv4jt',
+              'subscribe_expiration': 60,
+              'user': 'ws_access',
+              'srv_port': '7000',
+              'send_timeout': 5,
+              'local_port': None,
+              'srv_host': 'proxy-01.eu.allocloud.com',
+              'local_ip': '0.0.0.0'}
+
 
 @asyncio.coroutine
 def main(loop):

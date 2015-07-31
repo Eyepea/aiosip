@@ -8,7 +8,7 @@ from aiohttp import multidict
 from . import utils
 from .contact import Contact
 import aiosip
-
+from pyquery import PyQuery
 
 FIRST_LINE_PATTERN = \
     {'request':
@@ -82,6 +82,11 @@ class Message:
         else:
             msg.append(utils.EOL)
         return utils.EOL.join(msg)
+
+    def parsedXML(self):
+        if not self.headers['Content-Type'].endswith('+xml'):
+            return None
+        return PyQuery(self.payload).remove_namespaces()
 
     @classmethod
     def from_raw_message(cls, raw_message):
