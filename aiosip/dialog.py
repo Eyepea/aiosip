@@ -52,7 +52,6 @@ class Dialog:
 
     def receive_message(self, msg):
         if isinstance(msg, Response):
-            # import ipdb; ipdb.set_trace()
             if msg.cseq in self._msgs[msg.method]:
                 if msg.status_code == 401:
                     original_msg = self._msgs[msg.method].pop(msg.cseq)

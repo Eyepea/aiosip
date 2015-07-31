@@ -97,11 +97,6 @@ class Application(dict):
     def dispatch(self, protocol, msg):
         # key = (protocol, msg.from_details.from_repr(), msg.to_details['uri'].short_uri(), msg.headers['Call-ID'])
         key = msg.headers['Call-ID']
-        print('='*50)
-        # import ipdb; ipdb.set_trace()
-        print(key)
-        print(self._dialogs)
-        print('/'*50)
         if key in self._dialogs:
             self._dialogs[key].receive_message(msg)
         else:
@@ -113,6 +108,7 @@ class Application(dict):
             self._protocols[protocol, local_addr, remote_addr].send_message(msg)
         else:
             raise ValueError('No protocol to send message')
+
 
     @asyncio.coroutine
     def finish(self):
