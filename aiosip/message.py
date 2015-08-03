@@ -83,7 +83,7 @@ class Message:
             msg.append(utils.EOL)
         return utils.EOL.join(msg)
 
-    def parsedXML(self):
+    def parsed_xml(self):
         if not self.headers['Content-Type'].endswith('+xml'):
             return None
         return PyQuery(self.payload).remove_namespaces()
