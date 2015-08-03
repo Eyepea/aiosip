@@ -4,10 +4,9 @@ from aiohttp import multidict
 
 import aiosip
 
-def show_notify(dialog, message):
-    print(message)
 
- sip_config = {  'srv_host' : 'XXXXXXX',
+
+sip_config = {  'srv_host' : 'XXXXXXX',
                  'srv_port'  : '5060',
                  'realm' : 'XXXXXX',
                  'user'  : 'YYYYYY',
@@ -15,6 +14,11 @@ def show_notify(dialog, message):
                  'local_ip' : '0.0.0.0',
                  'local_port': None
              }
+
+
+def show_notify(dialog, message):
+    print(message)
+
 
 
 @asyncio.coroutine
