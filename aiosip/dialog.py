@@ -84,7 +84,11 @@ class Dialog:
             self.app.send_message(type(self.protocol), self.local_addr, self.remote_addr, resp)
 
             for callback_info in self.callbacks[msg.method.upper()]:
-                self.loop.call_soon(partial(callback_info['callable'], *((self, msg,) + callback_info['args']), **callback_info['kwargs']))
+                if asyncio.iscoroutinefunction(callback_info['callable']):
+                    fut = callback_info['callable'](*((self, msg,) + callback_info['args']), **callback_info['kwargs'])
+                    asyncio.async(fut)
+                else:
+                    self.loop.call_soon(partial(callback_info['callable'], *((self, msg,) + callback_info['args']), **callback_info['kwargs']))
 
     def send_message(self, method, to_uri=None, headers=None, content_type=None, payload=None, future=None):
         if headers is None:
