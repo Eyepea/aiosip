@@ -60,8 +60,9 @@ class Dialog:
                     if msg.method.upper() == 'REGISTER':
                         self.register_current_attempt -= 1
                         if self.register_current_attempt < 1:
-                            raise RegisterFailed('Too many unauthorized attempts !')
-
+                            self._msgs[msg.method].pop(msg.cseq).future.set_exception(RegisterFailed('Too many unauthorized attempts !'))
+                            return
+                        
                     original_msg = self._msgs[msg.method].pop(msg.cseq)
                     del(original_msg.headers['CSeq'])
                     original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
