@@ -6,6 +6,8 @@ from aiosip.auth import Auth
 from .contact import Contact
 from .log import dialog_logger
 from .message import Request, Response
+from .exceptions import RegisterFailed, RegisterOngoing
+
 from functools import partial
 
 class Dialog:
@@ -37,6 +39,7 @@ class Dialog:
         self.cseqs = defaultdict(int)
         self._msgs = defaultdict(dict)
         self.callbacks = defaultdict(list)
+        self.register_current_attempt = None
 
     def register_callback(self, method, callback, *args, **kwargs):
         self.callbacks[method.upper()].append({ 'callable': callback,
@@ -54,6 +57,11 @@ class Dialog:
         if isinstance(msg, Response):
             if msg.cseq in self._msgs[msg.method]:
                 if msg.status_code == 401:
+                    if msg.method.upper() == 'REGISTER':
+                        self.register_current_attempt -= 1
+                        if self.register_current_attempt < 1:
+                            raise RegisterFailed('Too many unauthorized attempts !')
+
                     original_msg = self._msgs[msg.method].pop(msg.cseq)
                     del(original_msg.headers['CSeq'])
                     original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
@@ -67,6 +75,8 @@ class Dialog:
                                       payload=original_msg.payload,
                                       future=original_msg.future)
                 else:
+                    if msg.method.upper() == 'REGISTER':
+                        self.register_current_attempt = None
                     self._msgs[msg.method].pop(msg.cseq).future.set_result(msg)  # Transaction end
             else:
                 raise ValueError('This Response SIP message doesn\'t have Request: "%s"' % msg)
@@ -110,12 +120,22 @@ class Dialog:
 
         return msg.future
 
-    def register(self, headers=None):
+    def register(self, headers=None, attempts = 3):
+        if self.register_current_attempt:
+            raise RegisterOngoing('Already a registration going on ! (attempt %s)'%self.register_current_attempt)
+
+        self.register_current_attempt = attempts
         if not headers:
             headers = multidict.CIMultiDict()
-        headers['Allow'] = 'INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH'
-        headers['Expires'] = '360'
-        headers['Allow-Events'] = 'talk,hold,conference,refer,check-sync'
+
+        if 'Allow' not in headers:
+            headers['Allow'] = 'INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH'
+
+        if 'Expires' not in headers:
+            headers['Expires'] = '360'
+
+        if 'Allow-Events' not in headers:
+            headers['Allow-Events'] = 'talk,hold,conference,refer,check-sync'
 
         send_msg_future = self.send_message(method='REGISTER',
                                             headers=headers,

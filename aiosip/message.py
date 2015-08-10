@@ -84,7 +84,7 @@ class Message:
         return utils.EOL.join(msg)
 
     def parsed_xml(self):
-        if not self.headers['Content-Type'].endswith('+xml'):
+        if ('Content-Type' not in self.headers) or (not self.headers['Content-Type'].endswith('+xml')):
             return None
         return PyQuery(self.payload).remove_namespaces()
 

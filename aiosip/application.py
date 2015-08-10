@@ -94,6 +94,7 @@ class Application(dict):
         yield from proto.ready
         return proto
 
+
     def dispatch(self, protocol, msg):
         # key = (protocol, msg.from_details.from_repr(), msg.to_details['uri'].short_uri(), msg.headers['Call-ID'])
         key = msg.headers['Call-ID']

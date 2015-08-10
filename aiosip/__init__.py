@@ -7,3 +7,4 @@ from .message import *
 from .uri import *
 from .protocol import *
 from .application import *
+from .exceptions import *
