@@ -124,6 +124,9 @@ class Dialog:
 
         return msg.future
 
+    def close(self):
+        self.app.stop_dialog(self)
+
     def register(self, headers=None, attempts = 3):
         if self.register_current_attempt:
             raise RegisterOngoing('Already a registration going on ! (attempt %s)'%self.register_current_attempt)

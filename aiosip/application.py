@@ -61,8 +61,12 @@ class Application(dict):
 
         # self._dialogs[protocol, dlg.from_details.from_repr(), dlg.to_details['uri'].short_uri(), call_id] = dlg
         self._dialogs[call_id] = dlg
-
         return dlg
+
+    @asyncio.coroutine
+    def stop_dialog(self, dialog):
+        dialog.callbacks = {}
+        del self._dialogs[dialog['call_id']]
 
     @asyncio.coroutine
     def create_connection(self, protocol, local_addr, remote_addr, mode='client'):

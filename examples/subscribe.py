@@ -32,6 +32,14 @@ def main(loop):
                                          password=sip_config['pwd'],
                                          )
 
+    fut = dialog.register()
+    try:
+        result = yield from asyncio.wait_for(fut, 5, loop=loop)
+        print('register ok')
+    except asyncio.TimeoutError:
+        print('Timeout doing REGISTER !')
+
+
     dialog.register_callback('NOTIFY', show_notify)
 
     watched_user = '666'
@@ -52,6 +60,9 @@ def main(loop):
     except asyncio.TimeoutError:
         print('Message not received !')
     yield from asyncio.sleep(240)  # wait NOTIFY messages
+
+    dialog.close()
+
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
