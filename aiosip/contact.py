@@ -8,7 +8,7 @@ from .utils import gen_str
 
 
 # Regex pattern from p2p-sip project
-CONTACT_PATTERNS = [re.compile('^(?P<name>[a-zA-Z0-9\-\._\+~ \t]*)<(?P<uri>[^>]+)>(?:;(?P<params>[^\?]*))?'),
+CONTACT_PATTERNS = [re.compile('^(?P<name>["a-zA-Z0-9\-\._\+~ \t]*)<(?P<uri>[^>]+)>(?:;(?P<params>[^\?]*))?'),
                     re.compile('^(?:"(?P<name>[^"]+)")[ \t]*<(?P<uri>[^>]+)>(?:;(?P<params>[^\?]*))?'),
                     re.compile('^[ \t]*(?P<name>)(?P<uri>[^;]+)(?:;(?P<params>[^\?]*))?')]
 
