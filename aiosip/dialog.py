@@ -68,7 +68,7 @@ class Dialog:
                     original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
                         authenticate=msg.headers['WWW-Authenticate'],
                         method=msg.method,
-                        uri=str(self.to_details),
+                        uri=self.to_details.from_repr(),
                         username=self.to_details['uri']['user'],
                         password=self.password))
                     self.send_message(msg.method,
