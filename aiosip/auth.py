@@ -23,6 +23,10 @@ class Auth(dict):
     @classmethod
     def from_authenticate_header(cls, authenticate, method, uri, username, password):
         auth = cls()
+
+        if uri[0] == '<':
+            uri = uri[1:uri.find('>')]
+
         if authenticate.startswith('Digest'):
             auth.method = 'Digest'
             params = authenticate[7:].split(', ')
