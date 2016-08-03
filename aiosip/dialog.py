@@ -1,6 +1,6 @@
 import asyncio
 from collections import defaultdict
-from aiohttp import multidict
+from multidict import CIMultiDict
 from aiosip.auth import Auth
 
 from .contact import Contact
@@ -82,7 +82,7 @@ class Dialog:
             else:
                 raise ValueError('This Response SIP message doesn\'t have Request: "%s"' % msg)
         else:
-            hdrs = multidict.CIMultiDict()
+            hdrs = CIMultiDict()
             hdrs['Via'] = msg.headers['Via']
             hdrs['To'] = msg.headers['To']
             hdrs['From'] = msg.headers['From']
@@ -103,7 +103,7 @@ class Dialog:
 
     def send_message(self, method, to_uri=None, headers=None, content_type=None, payload=None, future=None):
         if headers is None:
-            headers = multidict.CIMultiDict()
+            headers = CIMultiDict()
         if 'Call-ID' not in headers:
             headers['Call-ID'] = self.call_id
         if to_uri:
@@ -134,7 +134,7 @@ class Dialog:
 
         self.register_current_attempt = attempts
         if not headers:
-            headers = multidict.CIMultiDict()
+            headers = CIMultiDict()
 
         if 'Allow' not in headers:
             headers['Allow'] = 'INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH'

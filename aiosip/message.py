@@ -3,7 +3,7 @@ import re
 import sys
 import uuid
 
-from aiohttp import multidict
+from multidict import CIMultiDict
 
 from . import utils
 from .contact import Contact
@@ -31,7 +31,7 @@ class Message:
         if headers:
             self.headers = headers
         else:
-            self.headers = multidict.CIMultiDict()
+            self.headers = CIMultiDict()
 
         for direction in ('From', 'To'): # parse From and To headers
             direction_attribute = '%s_details' % direction.lower()
@@ -94,7 +94,7 @@ class Message:
     def from_raw_message(cls, raw_message):
         lines = raw_message.split(utils.EOL)
         first_line = lines.pop(0)
-        headers = multidict.CIMultiDict()
+        headers = CIMultiDict()
         payload = ''
         reading_headers = True
         for line in lines:

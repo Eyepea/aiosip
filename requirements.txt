@@ -1,5 +1,5 @@
 wheel
-aiohttp
+multidict>=2.0
 chardet==2.3.0
 cssselect==0.9.1
 lxml==3.4.4
