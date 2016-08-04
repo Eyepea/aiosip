@@ -19,6 +19,7 @@ class Dialog:
                  call_id,
                  protocol,
                  *,
+                 contact_uri=None,
                  local_addr=None,
                  remote_addr=None,
                  password='',
@@ -30,6 +31,10 @@ class Dialog:
         self.app = app
         self.from_details = Contact.from_header(from_uri)
         self.to_details = Contact.from_header(to_uri)
+        if contact_uri:
+            self.contact_details = Contact.from_header(contact_uri)
+        else:
+            self.contact_details = self.from_details
         self.call_id = call_id
         self.protocol = protocol
         self.local_addr = local_addr
@@ -138,6 +143,7 @@ class Dialog:
         msg = Request(method=method,
                       from_details=self.from_details,
                       to_details=to_details,
+                      contact_details=self.contact_details,
                       cseq=self.cseqs[method],
                       headers=headers,
                       content_type=content_type,
