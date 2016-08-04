@@ -41,12 +41,8 @@ class Message:
                             direction_attribute,
                             Contact.from_header(self.headers[direction]))
             elif hasattr(self, direction_attribute):
-                if direction == 'To':
-                    self.headers[direction] = getattr(self,
-                                                      direction_attribute)['uri'].short_uri()
-                else:
-                    self.headers[direction] = str(getattr(self,
-                                                          direction_attribute))
+                contact = getattr(self, direction_attribute)
+                self.headers[direction] = str(contact)
             elif direction != 'Contact':
                 raise(ValueError('You must have a "%s" header or details.' % direction))
 

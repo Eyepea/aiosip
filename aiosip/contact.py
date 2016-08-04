@@ -18,17 +18,18 @@ class Contact(dict):
         super().__init__(*args, **kwargs)
 
         params = self.get('params')
+        if not params:
+            self['params'] = Param()
         if not isinstance(params, Param):
             self['params'] = Param(self['params'])
-        else:
-            self['params'] = Param()
-
-        if 'tag' not in self['params']:
-            self['params']['tag'] = gen_str(16, string.digits + 'abcdef')
 
         uri = self.get('uri')
         if not isinstance(uri, Uri):
             self['uri'] = Uri(self['uri'])
+
+    def add_tag(self):
+        if 'tag' not in self['params']:
+            self['params']['tag'] = gen_str(16, string.digits + 'abcdef')
 
     @classmethod
     def from_header(cls, contact):
@@ -40,10 +41,19 @@ class Contact(dict):
             raise ValueError('Not valid contact address')
 
     def from_repr(self):
-        return '%s;%s' % (str(self['uri']), self['params'])
+        r = str(self['uri'])
+        params = self['params']
+        if params:
+            r += ';%s' % str(params)
+        return r
+
 
     def __str__(self):
         r = ''
         if self['name']:
             r += '"%s" ' % self['name']
-        return '%s%s;%s' % (r, self['uri'].contact_repr(), self['params'])
+        r += self['uri'].contact_repr()
+        params = self['params']
+        if params:
+            r += ';%s' % str(params)
+        return r

@@ -140,6 +140,7 @@ class Dialog:
         else:
             to_details = self.to_details
         self.cseqs[method] += 1
+        self.from_details.add_tag()
         msg = Request(method=method,
                       from_details=self.from_details,
                       to_details=to_details,
@@ -167,6 +168,7 @@ class Dialog:
         else:
             to_details = self.to_details
 
+        to_details.add_tag()
         if 'To' not in headers:
             headers['To'] = str(to_details)
         if 'From' not in headers:
