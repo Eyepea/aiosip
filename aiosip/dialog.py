@@ -28,8 +28,8 @@ class Dialog:
             loop = asyncio.get_event_loop()
 
         self.app = app
-        self.from_details = Contact(from_uri)
-        self.to_details = Contact(to_uri)
+        self.from_details = Contact.from_header(from_uri)
+        self.to_details = Contact.from_header(to_uri)
         self.call_id = call_id
         self.protocol = protocol
         self.local_addr = local_addr
@@ -109,12 +109,12 @@ class Dialog:
             if msg.method != 'ACK':
                 hdrs = CIMultiDict()
                 hdrs['Via'] = msg.headers['Via']
-                hdrs['To'] = msg.headers['To']
-                hdrs['From'] = msg.headers['From']
                 hdrs['CSeq'] = msg.headers['CSeq']
                 hdrs['Call-ID'] = msg.headers['Call-ID']
                 self.send_reply(status_code=200,
                                 status_message='OK',
+                                to_details=msg.to_details,
+                                from_details=msg.from_details,
                                 headers=hdrs,
                                 payload=None)
 
@@ -131,7 +131,7 @@ class Dialog:
         if 'Call-ID' not in headers:
             headers['Call-ID'] = self.call_id
         if to_uri:
-            to_details = Contact(to_uri)
+            to_details = Contact.from_header(to_uri)
         else:
             to_details = self.to_details
         self.cseqs[method] += 1
@@ -149,15 +149,23 @@ class Dialog:
         self.app.send_message(type(self.protocol), self.local_addr, self.remote_addr, msg)
         return msg.future if method != 'ACK' else None
 
-    def send_reply(self, status_code, status_message, to_uri=None, headers=None, content_type=None, payload=None, future=None):
+    def send_reply(self, status_code, status_message, to_details=None,
+                   from_details=None, headers=None, content_type=None,
+                   payload=None, future=None):
         if headers is None:
             headers = CIMultiDict()
         if 'Call-ID' not in headers:
             headers['Call-ID'] = self.call_id
-        if to_uri:
-            to_details = Contact(to_uri)
+        if to_details:
+            to_details = Contact(to_details)
         else:
             to_details = self.to_details
+
+        if 'To' not in headers:
+            headers['To'] = str(to_details)
+        if 'From' not in headers:
+            headers['From'] = str(from_details)
+
         msg = Response(status_code=status_code,
                        status_message=status_message,
                        headers=headers,

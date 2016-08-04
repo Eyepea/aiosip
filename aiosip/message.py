@@ -39,7 +39,7 @@ class Message:
                 if not hasattr(self, direction_attribute):
                     setattr(self,
                             direction_attribute,
-                            Contact(self.headers[direction]))
+                            Contact.from_header(self.headers[direction]))
             elif hasattr(self, direction_attribute):
                 if direction == 'To':
                     self.headers[direction] = getattr(self,
