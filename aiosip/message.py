@@ -156,8 +156,9 @@ class Request(Message):
 
         # Build the message
         if 'Via' not in self.headers:
-            self.headers['Via'] = 'SIP/2.0/%(protocol)s '+'%s:%s' % (self.from_details['uri']['host'],
-                                                                     self.from_details['uri']['port'])
+            self.headers['Via'] = 'SIP/2.0/%(protocol)s '+'%s:%s;branch=%s' % (self.from_details['uri']['host'],
+                                                                               self.from_details['uri']['port'],
+                                                                               utils.gen_branch(10))
         if 'Max-Forwards' not in self.headers:
             self.headers['Max-Forwards'] = '70'
         if 'Contact' not in self.headers:
