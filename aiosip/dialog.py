@@ -42,9 +42,9 @@ class Dialog:
         self.register_current_attempt = None
 
     def register_callback(self, method, callback, *args, **kwargs):
-        self.callbacks[method.upper()].append({ 'callable': callback,
-                                        'args' : args,
-                                        'kwargs': kwargs})
+        self.callbacks[method.upper()].append({'callable': callback,
+                                               'args' : args,
+                                               'kwargs': kwargs})
 
     def is_callback_registered(self, method, callback):
         return len(list(filter(lambda e: e['callable']==callback, self.callbacks[method])))
@@ -124,6 +124,24 @@ class Dialog:
         self.app.send_message(type(self.protocol), self.local_addr, self.remote_addr, msg)
 
         return msg.future
+
+    def send_reply(self, status_code, status_message, to_uri=None, headers=None, content_type=None, payload=None, future=None):
+        if headers is None:
+            headers = CIMultiDict()
+        if 'Call-ID' not in headers:
+            headers['Call-ID'] = self.call_id
+        if to_uri:
+            to_details = Contact(to_uri)
+        else:
+            to_details = self.to_details
+        msg = Response(status_code=status_code,
+                       status_message=status_message,
+                       headers=headers,
+                       content_type=content_type,
+                       payload=payload)
+        if future:
+            msg.future = future
+        self.app.send_message(type(self.protocol), self.local_addr, self.remote_addr, msg)
 
     def close(self):
         self.app.stop_dialog(self)

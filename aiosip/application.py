@@ -13,6 +13,14 @@ from .protocol import UDP
 from .log import application_logger
 
 
+class Router(object):
+    def __init__(self):
+        self.routes = {}
+
+    def add_route(self, method, handler):
+        self.routes[method] = handler
+
+
 class Application(dict):
 
     def __init__(self, *, logger=application_logger, loop=None):
@@ -24,6 +32,7 @@ class Application(dict):
         self.loop = loop
         self._dialogs = {}
         self._protocols = {}
+        self.router = Router()
 
     @asyncio.coroutine
     def start_dialog(self,
@@ -98,22 +107,42 @@ class Application(dict):
         yield from proto.ready
         return proto
 
+    @asyncio.coroutine
+    def handle_incoming(self, protocol, msg, addr, route):
+        local_addr = ('0.0.0.0', msg.to_details['uri']['port'])
+        remote_addr = addr
 
-    def dispatch(self, protocol, msg):
+        proto = yield from self.create_connection(protocol, local_addr, remote_addr)
+        dlg = Dialog(app=self,
+                     from_uri=msg.headers['From'],
+                     to_uri=msg.headers['To'],
+                     call_id=msg.headers['Call-ID'],
+                     protocol=proto,
+                     local_addr=local_addr,
+                     remote_addr=remote_addr,
+                     password=None,
+                     loop=self.loop)
+
+        self._dialogs[msg.headers['Call-ID']] = dlg
+        yield from route(dlg, msg)
+
+    def dispatch(self, protocol, msg, addr):
         # key = (protocol, msg.from_details.from_repr(), msg.to_details['uri'].short_uri(), msg.headers['Call-ID'])
         key = msg.headers['Call-ID']
+
         if key in self._dialogs:
             self._dialogs[key].receive_message(msg)
         else:
-            self.logger.debug('A new dialog starts...')  # @todo: it's a new dialog
-            # next(iter(self._dialogs.values())).receive_message(msg)
+            self.logger.debug('A new dialog starts...')
+            route = self.router.routes.get(msg.method)
+            if route:
+                self.loop.call_soon(asyncio.async, self.handle_incoming(protocol, msg, addr, route))
 
     def send_message(self, protocol, local_addr, remote_addr, msg):
         if (protocol, local_addr, remote_addr) in self._protocols:
             self._protocols[protocol, local_addr, remote_addr].send_message(msg)
         else:
             raise ValueError('No protocol to send message')
-
 
     @asyncio.coroutine
     def finish(self):
@@ -131,7 +160,7 @@ class Application(dict):
                     'message': "Error in finish callback",
                     'exception': exc,
                     'application': self,
-                    })
+                })
 
     def register_on_finish(self, func, *args, **kwargs):
         self._finish_callbacks.insert(0, (func, args, kwargs))
