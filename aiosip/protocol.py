@@ -25,7 +25,7 @@ class UDP(asyncio.DatagramProtocol):
         protocol_logger.debug('Received: "%s"', msg)
         msg_obj = message.Message.from_raw_message(msg)
 
-        self.app.dispatch(UDP, msg_obj)
+        self.app.dispatch(UDP, msg_obj, addr)
 
     # def error_received(self, exc):
     #     print('Error received:', exc)

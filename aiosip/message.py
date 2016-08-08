@@ -33,21 +33,17 @@ class Message:
         else:
             self.headers = CIMultiDict()
 
-        for direction in ('From', 'To'): # parse From and To headers
+        for direction in ('From', 'To', 'Contact'): # parse From, To, and Contact headers
             direction_attribute = '%s_details' % direction.lower()
             if direction in self.headers:
                 if not hasattr(self, direction_attribute):
                     setattr(self,
                             direction_attribute,
-                            Contact(self.headers[direction]))
+                            Contact.from_header(self.headers[direction]))
             elif hasattr(self, direction_attribute):
-                if direction == 'To':
-                    self.headers[direction] = getattr(self,
-                                                      direction_attribute)['uri'].short_uri()
-                else:
-                    self.headers[direction] = str(getattr(self,
-                                                          direction_attribute))
-            else:
+                contact = getattr(self, direction_attribute)
+                self.headers[direction] = str(contact)
+            elif direction != 'Contact':
                 raise(ValueError('You must have a "%s" header or details.' % direction))
 
             if content_type:
@@ -140,6 +136,7 @@ class Request(Message):
                  cseq=1,
                  from_details=None,
                  to_details=None,
+                 contact_details=None,
                  headers=None,
                  content_type=None,
                  payload=None):
@@ -147,6 +144,8 @@ class Request(Message):
             self.from_details = from_details
         if to_details:
             self.to_details = to_details
+        if contact_details:
+            self.contact_details = contact_details
         super().__init__(content_type=content_type,
                          headers=headers,
                          payload=payload)
@@ -156,12 +155,11 @@ class Request(Message):
 
         # Build the message
         if 'Via' not in self.headers:
-            self.headers['Via'] = 'SIP/2.0/%(protocol)s '+'%s:%s' % (self.from_details['uri']['host'],
-                                                                     self.from_details['uri']['port'])
+            self.headers['Via'] = 'SIP/2.0/%(protocol)s '+'%s:%s;branch=%s' % (self.contact_details['uri']['host'],
+                                                                               self.contact_details['uri']['port'],
+                                                                               utils.gen_branch(10))
         if 'Max-Forwards' not in self.headers:
             self.headers['Max-Forwards'] = '70'
-        if 'Contact' not in self.headers:
-            self.headers['Contact'] = self.to_details['uri'].short_uri()
         if 'Call-ID' not in self.headers:
             self.headers['Call-ID'] = uuid.uuid4()
         if 'CSeq' not in self.headers:
