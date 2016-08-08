@@ -1,6 +1,6 @@
 import logging
 import asyncio
-from aiohttp import multidict
+from multidict import CIMultiDict
 
 import aiosip
 
@@ -44,7 +44,7 @@ def main(loop):
 
     watched_user = '666'
 
-    headers = multidict.CIMultiDict()
+    headers = CIMultiDict()
     headers['Expires'] = '1800'
     headers['Event'] = 'dialog'
     headers['Accept'] = 'application/dialog-info+xml'
