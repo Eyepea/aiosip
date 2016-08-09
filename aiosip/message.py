@@ -181,10 +181,19 @@ class Response(Message):
                  status_code,
                  status_message,
                  headers=None,
+                 from_details=None,
+                 to_details=None,
+                 contact_details=None,
                  content_type=None,
                  payload=None):
         self.status_code = status_code
         self.status_message = status_message
+        if from_details:
+            self.from_details = from_details
+        if to_details:
+            self.to_details = to_details
+        if contact_details:
+            self.contact_details = contact_details
         super().__init__(content_type=content_type,
                          headers=headers,
                          payload=payload)
