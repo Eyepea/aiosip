@@ -49,10 +49,22 @@ class Message:
             if content_type:
                 self.headers['Content-Type'] = content_type
         self.payload = payload
-        if self.payload:
-            self.headers['Content-Length'] = len(self.payload.encode())
-        else:
-            self.headers['Content-Length'] = 0
+
+        # Build the message
+        if 'Via' not in self.headers:
+            self.headers['Via'] = 'SIP/2.0/%(protocol)s '+'%s:%s;branch=%s' % (self.contact_details['uri']['host'],
+                                                                               self.contact_details['uri']['port'],
+                                                                               utils.gen_branch(10))
+        if 'Max-Forwards' not in self.headers:
+            self.headers['Max-Forwards'] = '70'
+        if 'Call-ID' not in self.headers:
+            self.headers['Call-ID'] = uuid.uuid4()
+        if 'User-Agent' not in self.headers:
+            self.headers['User-Agent'] = 'Python/{0[0]}.{0[1]}.{0[2]} aiosip/{1}'.format(
+                sys.version_info, aiosip.__version__)
+        if 'Content-Length' not in self.headers:
+            payload_len = len(self.payload.encode()) if self.payload else 0
+            self.headers['Content-Length'] = payload_len
 
     @property
     def cseq(self):
@@ -153,22 +165,8 @@ class Request(Message):
         self._cseq = cseq
         self.future = asyncio.Future()
 
-        # Build the message
-        if 'Via' not in self.headers:
-            self.headers['Via'] = 'SIP/2.0/%(protocol)s '+'%s:%s;branch=%s' % (self.contact_details['uri']['host'],
-                                                                               self.contact_details['uri']['port'],
-                                                                               utils.gen_branch(10))
-        if 'Max-Forwards' not in self.headers:
-            self.headers['Max-Forwards'] = '70'
-        if 'Call-ID' not in self.headers:
-            self.headers['Call-ID'] = uuid.uuid4()
         if 'CSeq' not in self.headers:
             self.headers['CSeq'] = '%s %s' % (cseq, self.method)
-        if 'User-Agent' not in self.headers:
-            self.headers['User-Agent'] = 'Python/{0[0]}.{0[1]}.{0[2]} aiosip/{1}'.format(
-                sys.version_info, aiosip.__version__)
-        if 'Content-Length' not in self.headers:
-            self.headers['Content-Length'] = len(payload)
 
     def __str__(self):
         message = FIRST_LINE_PATTERN['request']['str'] % {'method': self.method,
@@ -181,10 +179,19 @@ class Response(Message):
                  status_code,
                  status_message,
                  headers=None,
+                 from_details=None,
+                 to_details=None,
+                 contact_details=None,
                  content_type=None,
                  payload=None):
         self.status_code = status_code
         self.status_message = status_message
+        if from_details:
+            self.from_details = from_details
+        if to_details:
+            self.to_details = to_details
+        if contact_details:
+            self.contact_details = contact_details
         super().__init__(content_type=content_type,
                          headers=headers,
                          payload=payload)
