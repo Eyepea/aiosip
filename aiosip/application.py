@@ -13,7 +13,7 @@ from .protocol import UDP
 from .log import application_logger
 
 
-class Router(object):
+class Router:
     def __init__(self):
         self.routes = {}
 
@@ -21,8 +21,7 @@ class Router(object):
         self.routes[method] = handler
 
 
-class Application(dict):
-
+class Application:
     def __init__(self, *, logger=application_logger, loop=None):
         if loop is None:
             loop = asyncio.get_event_loop()
