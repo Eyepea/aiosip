@@ -9,6 +9,7 @@ import asyncio
 
 from .dialog import Dialog
 from .protocol import UDP
+from .contact import Contact
 
 from .log import application_logger
 
@@ -46,13 +47,14 @@ class Application(dict):
                      password='',
                      dialog=Dialog):
 
-        # @todo: generate local and remote addr based on from_uri and to_uri
-        # if local_addr is None:
-        #     local_addr=(msg.from_details['uri']['host'],
-        #                 msg.from_details['uri']['port'])
-        # if remote_addr is None:
-        #     remote_addr=(msg.to_details['uri']['host'],
-        #                  msg.to_details['uri']['port'])
+        if local_addr is None:
+            contact = Contact.from_header(contact_uri if contact_uri else from_uri)
+            local_addr = (contact['uri']['host'],
+                          contact['uri']['port'])
+        if remote_addr is None:
+            contact = Contact.from_header(to_uri)
+            remote_addr = (contact['uri']['host'],
+                           contact['uri']['port'])
 
         proto = yield from self.create_connection(protocol, local_addr, remote_addr)
 
@@ -111,8 +113,11 @@ class Application(dict):
 
     @asyncio.coroutine
     def handle_incoming(self, protocol, msg, addr, route):
-        local_addr = ('0.0.0.0', msg.to_details['uri']['port'])
-        remote_addr = addr
+        local_addr = (msg.to_details['uri']['host'],
+                      msg.to_details['uri']['port'])
+
+        remote_addr = (msg.contact_details['uri']['host'],
+                       msg.contact_details['uri']['port'])
 
         proto = yield from self.create_connection(protocol, local_addr, remote_addr)
         dlg = Dialog(app=self,
