@@ -187,7 +187,7 @@ class Dialog:
     def close(self):
         self.app.stop_dialog(self)
 
-    def register(self, headers=None, attempts = 3):
+    def register(self, headers=None, attempts=3, expires=360):
         if self.register_current_attempt:
             raise RegisterOngoing('Already a registration going on ! (attempt %s)'%self.register_current_attempt)
 
@@ -199,7 +199,7 @@ class Dialog:
             headers['Allow'] = 'INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH'
 
         if 'Expires' not in headers:
-            headers['Expires'] = '360'
+            headers['Expires'] = int(expires)
 
         if 'Allow-Events' not in headers:
             headers['Allow-Events'] = 'talk,hold,conference,refer,check-sync'
