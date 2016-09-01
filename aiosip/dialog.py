@@ -97,6 +97,22 @@ class Dialog:
                                       headers=original_msg.headers,
                                       payload=original_msg.payload,
                                       future=original_msg.future)
+                                      
+                # for call authorization
+                elif msg.status_code == 407:
+                    original_msg = self._msgs[msg.method].pop(msg.cseq)
+                    del(original_msg.headers['CSeq'])
+                    original_msg.headers['Proxy-Authorization'] = str(Auth.from_authenticate_header(
+                        authenticate=msg.headers['Proxy-Authenticate'],
+                        method=msg.method,
+                        uri=str(self.to_details),
+                        username=self.to_details['uri']['user'],
+                        password=self.password))
+                    self.send_message(msg.method,
+                                      headers=original_msg.headers,
+                                      payload=original_msg.payload,
+                                      future=original_msg.future)
+                                      
                 elif msg.status_code == 100:
                     pass
                 elif msg.status_code == 180:
