@@ -98,7 +98,7 @@ class Dialog:
                                       payload=original_msg.payload,
                                       future=original_msg.future)
                                       
-                # for call authorization
+                # for proxy authentication
                 elif msg.status_code == 407:
                     original_msg = self._msgs[msg.method].pop(msg.cseq)
                     del(original_msg.headers['CSeq'])
