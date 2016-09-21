@@ -34,8 +34,9 @@ class Call:
         self.dialog.send_message(method='ACK', headers=hdrs)
 
     def handle_bye(self, dialog, request):
-        print('Call disconnected by remote...')
-        self.gotbye.set_result(True)
+        if not self.gotbye.done():
+            print('Call disconnected by remote...')
+            self.gotbye.set_result(request)
 
     @asyncio.coroutine
     def close(self):
@@ -49,7 +50,7 @@ class Call:
                                                          headers=hdrs)
             assert new_ok.status_code == 200
             self._ack(new_ok)
-            self.gotbye.set_result(True)
+            self.gotbye.set_result(None)
 
     @property
     def active(self):
