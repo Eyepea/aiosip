@@ -84,16 +84,19 @@ class Dialog:
                         hdrs['CSeq'] = msg.headers['CSeq'].replace('INVITE', 'ACK')
                         hdrs['Via'] = msg.headers['Via']
                         self.send_message(method='ACK', headers=hdrs)
+                    else:
+                        username = msg.from_details['uri']['user']
 
                     original_msg = self._msgs[msg.method].pop(msg.cseq)
                     del(original_msg.headers['CSeq'])
                     original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
                         authenticate=msg.headers['WWW-Authenticate'],
                         method=msg.method,
-                        uri=self.to_details.from_repr(),
+                        uri=msg.to_details['uri'].short_uri(),
                         username=username,
                         password=self.password))
-                    self.send_message(msg.method,
+                    self.send_message(original_msg.method,
+                                      to_details=original_msg.to_details,
                                       headers=original_msg.headers,
                                       payload=original_msg.payload,
                                       future=original_msg.future)
