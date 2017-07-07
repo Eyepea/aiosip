@@ -18,7 +18,8 @@ Features tested on production
 -----------------------------
 
 * SIP endpoint client mode
-* UDP support
+* SIP proxy/server mode
+* UDP and TCP support
 * REGISTER
 * NOTIFY
 * SUBSCRIBE
@@ -29,6 +30,4 @@ Missing features
 
 * Documentation
 * unit tests
-* TCP support
-* SIP proxy/server mode
 * SDP support
