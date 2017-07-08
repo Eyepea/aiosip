@@ -6,6 +6,7 @@ import uuid
 __all__ = ['Application']
 
 import asyncio
+from collections import MutableMapping
 
 from .dialog import Dialog
 from .protocol import UDP
@@ -22,7 +23,7 @@ class Router(object):
         self.routes[method] = handler
 
 
-class Application(dict):
+class Application(MutableMapping):
 
     def __init__(self, *, logger=application_logger, loop=None):
         if loop is None:
@@ -32,6 +33,7 @@ class Application(dict):
         self._finish_callbacks = []
         self.loop = loop
         self._dialogs = {}
+        self._state = {}
         self._protocols = {}
         self.router = Router()
 
@@ -174,3 +176,22 @@ class Application(dict):
 
     def __repr__(self):
         return "<Application>"
+
+    # MutableMapping API
+    def __eq__(self, other):
+        return self is other
+
+    def __getitem__(self, key):
+        return self._state[key]
+
+    def __setitem__(self, key, value):
+        self._state[key] = value
+
+    def __delitem__(self, key):
+        del self._state[key]
+
+    def __len__(self):
+        return len(self._state)
+
+    def __iter__(self):
+        return iter(self._state)
