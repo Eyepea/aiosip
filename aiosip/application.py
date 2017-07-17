@@ -7,6 +7,7 @@ __all__ = ['Application']
 
 import asyncio
 from collections import MutableMapping
+import weakref
 
 from .dialog import Dialog
 from .protocol import UDP
@@ -32,9 +33,10 @@ class Application(MutableMapping):
         self.logger = logger
         self._finish_callbacks = []
         self.loop = loop
-        self._dialogs = {}
+        self._dialogs = weakref.WeakValueDictionary()
         self._state = {}
         self._protocols = {}
+        self._transports = {}
         self.router = Router()
 
     @asyncio.coroutine
@@ -109,6 +111,7 @@ class Application(MutableMapping):
                 raise Exception('Impossible to connect with this protocol class')
 
             self._protocols[protocol, local_addr, remote_addr] = proto
+            self._transports[protocol, local_addr, remote_addr] = trans
 
         yield from proto.ready
         return proto
