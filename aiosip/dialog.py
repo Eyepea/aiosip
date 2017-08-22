@@ -31,10 +31,7 @@ class Dialog:
         self.app = app
         self.from_details = Contact.from_header(from_uri)
         self.to_details = Contact.from_header(to_uri)
-        if contact_uri:
-            self.contact_details = Contact.from_header(contact_uri)
-        else:
-            self.contact_details = self.from_details
+        self.contact_details = Contact.from_header(contact_uri or from_uri)
         self.call_id = call_id
         self.protocol = protocol
         self.local_addr = local_addr
