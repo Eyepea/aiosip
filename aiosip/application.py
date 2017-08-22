@@ -148,7 +148,7 @@ class Application(MutableMapping):
             self.logger.debug('A new dialog starts...')
             route = self.router.routes.get(msg.method)
             if route:
-                self.loop.call_soon(asyncio.async, self.handle_incoming(protocol, msg, addr, route))
+                self.loop.call_soon(asyncio.ensure_future, self.handle_incoming(protocol, msg, addr, route))
 
     def send_message(self, protocol, local_addr, remote_addr, msg):
         if (protocol, local_addr, remote_addr) in self._protocols:

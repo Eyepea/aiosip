@@ -145,7 +145,7 @@ class Dialog:
             for callback_info in self.callbacks[msg.method.upper()]:
                 if asyncio.iscoroutinefunction(callback_info['callable']):
                     fut = callback_info['callable'](*((self, msg,) + callback_info['args']), **callback_info['kwargs'])
-                    asyncio.async(fut)
+                    asyncio.ensure_future(fut)
                 else:
                     self.loop.call_soon(partial(callback_info['callable'], *((self, msg,) + callback_info['args']), **callback_info['kwargs']))
 
