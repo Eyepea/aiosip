@@ -60,7 +60,8 @@ class Dialog:
     def receive_message(self, msg):
         if isinstance(msg, Response):
             if msg.cseq in self._msgs[msg.method]:
-                if msg.status_code == 401:
+                authenticate = msg.headers.get('WWW-Authenticate')
+                if msg.status_code == 401 and authenticate:
                     if msg.method.upper() == 'REGISTER':
                         self.register_current_attempt -= 1
                         if self.register_current_attempt < 1:
@@ -87,7 +88,7 @@ class Dialog:
                     original_msg = self._msgs[msg.method].pop(msg.cseq)
                     del(original_msg.headers['CSeq'])
                     original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
-                        authenticate=msg.headers['WWW-Authenticate'],
+                        authenticate=authenticate,
                         method=msg.method,
                         uri=msg.to_details['uri'].short_uri(),
                         username=username,
