@@ -11,3 +11,4 @@ Contributors
 ------------
 
 * Nicolas Stein (Niketufjo)
+* Simon Gomizelj (vodik)
