@@ -41,7 +41,7 @@ setup(
         'Development Status :: 3 - Alpha',
         'Framework :: AsyncIO',
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: BSD License',
+        'License :: OSI Approved :: Apache Software License',
         'Natural Language :: English',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.3',
