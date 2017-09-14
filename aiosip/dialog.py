@@ -31,10 +31,7 @@ class Dialog:
         self.app = app
         self.from_details = Contact.from_header(from_uri)
         self.to_details = Contact.from_header(to_uri)
-        if contact_uri:
-            self.contact_details = Contact.from_header(contact_uri)
-        else:
-            self.contact_details = self.from_details
+        self.contact_details = Contact.from_header(contact_uri or from_uri)
         self.call_id = call_id
         self.protocol = protocol
         self.local_addr = local_addr
@@ -63,7 +60,8 @@ class Dialog:
     def receive_message(self, msg):
         if isinstance(msg, Response):
             if msg.cseq in self._msgs[msg.method]:
-                if msg.status_code == 401:
+                authenticate = msg.headers.get('WWW-Authenticate')
+                if msg.status_code == 401 and authenticate:
                     if msg.method.upper() == 'REGISTER':
                         self.register_current_attempt -= 1
                         if self.register_current_attempt < 1:
@@ -90,7 +88,7 @@ class Dialog:
                     original_msg = self._msgs[msg.method].pop(msg.cseq)
                     del(original_msg.headers['CSeq'])
                     original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
-                        authenticate=msg.headers['WWW-Authenticate'],
+                        authenticate=authenticate,
                         method=msg.method,
                         uri=msg.to_details['uri'].short_uri(),
                         username=username,
@@ -145,7 +143,7 @@ class Dialog:
             for callback_info in self.callbacks[msg.method.upper()]:
                 if asyncio.iscoroutinefunction(callback_info['callable']):
                     fut = callback_info['callable'](*((self, msg,) + callback_info['args']), **callback_info['kwargs'])
-                    asyncio.async(fut)
+                    asyncio.ensure_future(fut)
                 else:
                     self.loop.call_soon(partial(callback_info['callable'], *((self, msg,) + callback_info['args']), **callback_info['kwargs']))
 
