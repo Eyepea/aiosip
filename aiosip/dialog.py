@@ -12,19 +12,21 @@ from .exceptions import RegisterFailed, RegisterOngoing, InviteFailed, InviteOng
 from functools import partial
 
 class Dialog:
-    def __init__(self,
-                 app,
-                 from_uri,
-                 to_uri,
-                 call_id,
-                 protocol,
-                 *,
-                 contact_uri=None,
-                 local_addr=None,
-                 remote_addr=None,
-                 password='',
-                 logger=dialog_logger,
-                 loop=None):
+    def __init__(self, *, logger=dialog_logger):
+        self.logger = logger
+
+    def connection_made(self,
+                        app,
+                        from_uri,
+                        to_uri,
+                        call_id,
+                        protocol,
+                        *,
+                        contact_uri=None,
+                        local_addr=None,
+                        remote_addr=None,
+                        password='',
+                        loop=None):
         if loop is None:
             loop = asyncio.get_event_loop()
 
@@ -37,7 +39,6 @@ class Dialog:
         self.local_addr = local_addr
         self.remote_addr = remote_addr
         self.password = password
-        self.logger = logger
         self.loop = loop
         self.cseqs = defaultdict(int)
         self._msgs = defaultdict(dict)
