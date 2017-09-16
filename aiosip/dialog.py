@@ -173,7 +173,7 @@ class Dialog:
             msg.future = future
 
         self._msgs[method][self.cseqs[method]] = msg
-        self.app.send_message(type(self.protocol), self.local_addr, self.remote_addr, msg)
+        self.protocol.send_message(msg)
         return msg.future if method != 'ACK' else None
 
     def send_reply(self, status_code, status_message, to_details=None,
@@ -200,7 +200,7 @@ class Dialog:
                        payload=payload)
         if future:
             msg.future = future
-        self.app.send_message(type(self.protocol), self.local_addr, self.remote_addr, msg)
+        self.protocol.send_message(msg)
 
     def close(self):
         self.app.stop_dialog(self)
