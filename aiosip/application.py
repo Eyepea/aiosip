@@ -41,6 +41,7 @@ class Application(MutableMapping):
 
     @asyncio.coroutine
     def start_dialog(self,
+                     dialog_factory,
                      from_uri,
                      to_uri,
                      contact_uri=None,
@@ -48,8 +49,7 @@ class Application(MutableMapping):
                      protocol=UDP,
                      local_addr=None,
                      remote_addr=None,
-                     password='',
-                     dialog=Dialog):
+                     password=''):
 
         if local_addr is None:
             contact = Contact.from_header(contact_uri if contact_uri else from_uri)
@@ -65,16 +65,17 @@ class Application(MutableMapping):
         if not call_id:
             call_id = str(uuid.uuid4())
 
-        dlg = dialog(app=self,
-                     from_uri=from_uri,
-                     to_uri=to_uri,
-                     contact_uri=contact_uri,
-                     call_id=call_id,
-                     protocol=proto,
-                     local_addr=local_addr,
-                     remote_addr=remote_addr,
-                     password=password,
-                     loop=self.loop)
+        dlg = dialog_factory()
+        dialog.connection_made(app=self,
+                               from_uri=from_uri,
+                               to_uri=to_uri,
+                               call_id=call_id,
+                               protocol=proto,
+                               contact_uri=contact_uri,
+                               local_addr=local_addr,
+                               remote_addr=remote_addr,
+                               password=password,
+                               loop=self.loop)
 
         # self._dialogs[protocol, dlg.from_details.from_repr(), dlg.to_details['uri'].short_uri(), call_id] = dlg
         self._dialogs[call_id] = dlg

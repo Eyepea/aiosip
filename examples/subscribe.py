@@ -25,12 +25,14 @@ def show_notify(dialog, message):
 def main(loop):
     app = aiosip.Application(loop=loop)
 
-    dialog = yield from app.start_dialog(from_uri='sip:{user}@{realm}:{srv_port}'.format(**sip_config),
-                                         to_uri='sip:{user}@{realm}:{srv_port}'.format(**sip_config),
-                                         local_addr=(sip_config['local_ip'], sip_config['local_port']),
-                                         remote_addr=(sip_config['srv_host'], sip_config['srv_port']),
-                                         password=sip_config['pwd'],
-                                         )
+    dialog = yield from app.start_dialog(
+        asyncio.Dialog,
+        from_uri='sip:{user}@{realm}:{srv_port}'.format(**sip_config),
+        to_uri='sip:{user}@{realm}:{srv_port}'.format(**sip_config),
+        local_addr=(sip_config['local_ip'], sip_config['local_port']),
+        remote_addr=(sip_config['srv_host'], sip_config['srv_port']),
+        password=sip_config['pwd']
+    )
 
     fut = dialog.register()
     try:
