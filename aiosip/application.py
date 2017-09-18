@@ -141,7 +141,6 @@ class Application(MutableMapping):
         else:
             self.logger.debug('A new dialog starts...')
             route = self.dialplan.resolve(msg)
-            print(route)
             if route:
                 dialog = self.handle_incoming(protocol, msg, addr, route)
                 self.loop.call_soon(asyncio.ensure_future, dialog)

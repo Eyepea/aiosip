@@ -40,7 +40,7 @@ class Dialog:
         self.remote_addr = remote_addr
         self.password = password
         self.loop = loop
-        self.cseqs = defaultdict(int)
+        self.cseq = 0
         self._msgs = defaultdict(dict)
         self.callbacks = defaultdict(list)
         self.invite_current_attempt = None
@@ -160,19 +160,19 @@ class Dialog:
             from_details = self.from_details
         from_details.add_tag()
 
-        self.cseqs[method] += 1
+        self.cseq += 1
         msg = Request(method=method,
                       from_details=from_details,
                       to_details=to_details if to_details else self.to_details,
                       contact_details=contact_details if contact_details else self.contact_details,
-                      cseq=self.cseqs[method],
+                      cseq=self.cseq,
                       headers=headers,
                       content_type=content_type,
                       payload=payload)
         if future:
             msg.future = future
 
-        self._msgs[method][self.cseqs[method]] = msg
+        self._msgs[method][self.cseq] = msg
         self.protocol.send_message(msg)
         return msg.future if method != 'ACK' else None
 
