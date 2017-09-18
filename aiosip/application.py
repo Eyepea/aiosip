@@ -10,18 +10,11 @@ from collections import MutableMapping
 import weakref
 
 from .dialog import Dialog
+from .dialplan import Dialplan
 from .protocol import UDP
 from .contact import Contact
 
 from .log import application_logger
-
-
-class Router(object):
-    def __init__(self):
-        self.routes = {}
-
-    def add_route(self, method, handler):
-        self.routes[method] = handler
 
 
 class Application(MutableMapping):
@@ -37,10 +30,11 @@ class Application(MutableMapping):
         self._state = {}
         self._protocols = {}
         self._transports = {}
-        self.router = Router()
+        self.dialplan = Dialplan()
 
     @asyncio.coroutine
     def start_dialog(self,
+                     dialog_factory,
                      from_uri,
                      to_uri,
                      contact_uri=None,
@@ -48,8 +42,7 @@ class Application(MutableMapping):
                      protocol=UDP,
                      local_addr=None,
                      remote_addr=None,
-                     password='',
-                     dialog=Dialog):
+                     password=''):
 
         if local_addr is None:
             contact = Contact.from_header(contact_uri if contact_uri else from_uri)
@@ -65,20 +58,20 @@ class Application(MutableMapping):
         if not call_id:
             call_id = str(uuid.uuid4())
 
-        dlg = dialog(app=self,
-                     from_uri=from_uri,
-                     to_uri=to_uri,
-                     contact_uri=contact_uri,
-                     call_id=call_id,
-                     protocol=proto,
-                     local_addr=local_addr,
-                     remote_addr=remote_addr,
-                     password=password,
-                     loop=self.loop)
+        dialog = dialog_factory()
+        dialog.connection_made(app=self,
+                               from_uri=from_uri,
+                               to_uri=to_uri,
+                               call_id=call_id,
+                               protocol=proto,
+                               contact_uri=contact_uri,
+                               local_addr=local_addr,
+                               remote_addr=remote_addr,
+                               password=password,
+                               loop=self.loop)
 
-        # self._dialogs[protocol, dlg.from_details.from_repr(), dlg.to_details['uri'].short_uri(), call_id] = dlg
-        self._dialogs[call_id] = dlg
-        return dlg
+        self._dialogs[call_id] = dialog
+        return dialog
 
     @asyncio.coroutine
     def stop_dialog(self, dialog):
@@ -92,19 +85,19 @@ class Application(MutableMapping):
         else:
             if issubclass(protocol, asyncio.DatagramProtocol):
                 trans, proto = yield from self.loop.create_datagram_endpoint(
-                    lambda: protocol(app=self, loop=self.loop),
+                    self.make_handler(protocol),
                     local_addr=local_addr,
                     remote_addr=remote_addr,
                 )
             elif issubclass(protocol, asyncio.Protocol) and mode == 'client':
                 trans, proto = yield from self.loop.create_connection(
-                    lambda: protocol(app=self, loop=self.loop),
+                    self.make_handler(protocol),
                     local_addr=local_addr,
                     host=remote_addr[0],
                     port=remote_addr[1])
             elif issubclass(protocol, asyncio.Protocol) and mode == 'server':
                 trans, proto = yield from self.loop.create_server(
-                    lambda: protocol(app=self, loop=self.loop),
+                    self.make_handler(protocol),
                     host=remote_addr[0],
                     port=remote_addr[1])
             else:
@@ -125,18 +118,19 @@ class Application(MutableMapping):
                        msg.contact_details['uri']['port'])
 
         proto = yield from self.create_connection(protocol, local_addr, remote_addr)
-        dlg = Dialog(app=self,
-                     from_uri=msg.headers['From'],
-                     to_uri=msg.headers['To'],
-                     call_id=msg.headers['Call-ID'],
-                     protocol=proto,
-                     local_addr=local_addr,
-                     remote_addr=remote_addr,
-                     password=None,
-                     loop=self.loop)
+        dialog = Dialog()
+        dialog.connection_made(app=self,
+                               from_uri=msg.headers['From'],
+                               to_uri=msg.headers['To'],
+                               call_id=msg.headers['Call-ID'],
+                               protocol=proto,
+                               local_addr=local_addr,
+                               remote_addr=remote_addr,
+                               password=None,
+                               loop=self.loop)
 
-        self._dialogs[msg.headers['Call-ID']] = dlg
-        yield from route(dlg, msg)
+        self._dialogs[msg.headers['Call-ID']] = dialog
+        yield from route(dialog, msg)
 
     def dispatch(self, protocol, msg, addr):
         # key = (protocol, msg.from_details.from_repr(), msg.to_details['uri'].short_uri(), msg.headers['Call-ID'])
@@ -146,9 +140,11 @@ class Application(MutableMapping):
             self._dialogs[key].receive_message(msg)
         else:
             self.logger.debug('A new dialog starts...')
-            route = self.router.routes.get(msg.method)
+            route = self.dialplan.resolve(msg)
+            print(route)
             if route:
-                self.loop.call_soon(asyncio.ensure_future, self.handle_incoming(protocol, msg, addr, route))
+                dialog = self.handle_incoming(protocol, msg, addr, route)
+                self.loop.call_soon(asyncio.ensure_future, dialog)
 
     def send_message(self, protocol, local_addr, remote_addr, msg):
         if (protocol, local_addr, remote_addr) in self._protocols:
@@ -198,3 +194,6 @@ class Application(MutableMapping):
 
     def __iter__(self):
         return iter(self._state)
+
+    def make_handler(self, protocol):
+        return lambda: protocol(app=self, loop=self.loop)
