@@ -11,6 +11,82 @@ from .exceptions import RegisterFailed, RegisterOngoing, InviteFailed, InviteOng
 
 from functools import partial
 
+
+class Transaction:
+    def __init__(self, dialog, password=None, attempts=3, future=None,
+                 *, loop=None):
+        self.dialog = dialog
+        self.loop = loop or asyncio.get_event_loop()
+        self.future = future or asyncio.Future(loop=self.loop)
+        self.attempts = attempts
+
+    def feed_message(self, msg, original_msg=None):
+        authenticate = msg.headers.get('WWW-Authenticate')
+        if msg.status_code == 401 and authenticate:
+            if msg.method.upper() == 'REGISTER':
+                self.attempts -= 1
+                if self.attempts < 1:
+                    self.future.set_exception(
+                        RegisterFailed('Too many unauthorized attempts!')
+                    )
+                    return
+                username = msg.to_details['uri']['user']
+            elif msg.method.upper() == 'INVITE':
+                self.attempts -= 1
+                if self.attempts < 1:
+                    self.future.set_exception(
+                        InviteFailed('Too many unauthorized attempts!')
+                    )
+                    return
+                username = msg.from_details['uri']['user']
+
+                hdrs = CIMultiDict()
+                hdrs['From'] = msg.headers['From']
+                hdrs['To'] = msg.headers['To']
+                hdrs['Call-ID'] = msg.headers['Call-ID']
+                hdrs['CSeq'] = msg.headers['CSeq'].replace('INVITE', 'ACK')
+                hdrs['Via'] = msg.headers['Via']
+                self.dialog.send_message(method='ACK', headers=hdrs)
+            else:
+                username = msg.from_details['uri']['user']
+
+            del(original_msg.headers['CSeq'])
+            original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
+                authenticate=authenticate,
+                method=msg.method,
+                uri=msg.to_details['uri'].short_uri(),
+                username=username,
+                password=self.password))
+            self.dialog.send_message(original_msg.method,
+                                     to_details=original_msg.to_details,
+                                     headers=original_msg.headers,
+                                     payload=original_msg.payload,
+                                     future=self.futrue)
+
+        # for proxy authentication
+        elif msg.status_code == 407:
+            original_msg = self._msgs[msg.method].pop(msg.cseq)
+            del(original_msg.headers['CSeq'])
+            original_msg.headers['Proxy-Authorization'] = str(Auth.from_authenticate_header(
+                authenticate=msg.headers['Proxy-Authenticate'],
+                method=msg.method,
+                uri=str(self.to_details),
+                username=self.to_details['uri']['user'],
+                password=self.password))
+            self.dialog.send_message(msg.method,
+                                     headers=original_msg.headers,
+                                     payload=original_msg.payload,
+                                     future=self.futrue)
+
+        elif 100 <= msg.status_code < 200:
+            pass
+        else:
+            self.future.set_result(msg)
+
+    def __await__(self):
+        return self.future
+
+
 class Dialog:
     def __init__(self, *, logger=dialog_logger):
         self.logger = logger
@@ -42,9 +118,8 @@ class Dialog:
         self.loop = loop
         self.cseq = 0
         self._msgs = defaultdict(dict)
+        self._pending = defaultdict(dict)
         self.callbacks = defaultdict(list)
-        self.invite_current_attempt = None
-        self.register_current_attempt = None
 
     def register_callback(self, method, callback, *args, **kwargs):
         self.callbacks[method.upper()].append({'callable': callback,
@@ -61,73 +136,11 @@ class Dialog:
     def receive_message(self, msg):
         if isinstance(msg, Response):
             if msg.cseq in self._msgs[msg.method]:
-                authenticate = msg.headers.get('WWW-Authenticate')
-                if msg.status_code == 401 and authenticate:
-                    if msg.method.upper() == 'REGISTER':
-                        self.register_current_attempt -= 1
-                        if self.register_current_attempt < 1:
-                            self._msgs[msg.method].pop(msg.cseq).future.set_exception(RegisterFailed('Too many unauthorized attempts !'))
-                            return
-                        username = self.to_details['uri']['user']
-                    elif msg.method.upper() == 'INVITE':
-                        self.invite_current_attempt -= 1
-                        if self.invite_current_attempt < 1:
-                            self._msgs[msg.method].pop(msg.cseq).future.set_exception(InviteFailed('Too many unauthorized attempts !'))
-                            return
-                        username = msg.from_details['uri']['user']
-
-                        hdrs = CIMultiDict()
-                        hdrs['From'] = msg.headers['From']
-                        hdrs['To'] = msg.headers['To']
-                        hdrs['Call-ID'] = msg.headers['Call-ID']
-                        hdrs['CSeq'] = msg.headers['CSeq'].replace('INVITE', 'ACK')
-                        hdrs['Via'] = msg.headers['Via']
-                        self.send_message(method='ACK', headers=hdrs)
-                    else:
-                        username = msg.from_details['uri']['user']
-
-                    original_msg = self._msgs[msg.method].pop(msg.cseq)
-                    del(original_msg.headers['CSeq'])
-                    original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
-                        authenticate=authenticate,
-                        method=msg.method,
-                        uri=msg.to_details['uri'].short_uri(),
-                        username=username,
-                        password=self.password))
-                    self.send_message(original_msg.method,
-                                      to_details=original_msg.to_details,
-                                      headers=original_msg.headers,
-                                      payload=original_msg.payload,
-                                      future=original_msg.future)
-                                      
-                # for proxy authentication
-                elif msg.status_code == 407:
-                    original_msg = self._msgs[msg.method].pop(msg.cseq)
-                    del(original_msg.headers['CSeq'])
-                    original_msg.headers['Proxy-Authorization'] = str(Auth.from_authenticate_header(
-                        authenticate=msg.headers['Proxy-Authenticate'],
-                        method=msg.method,
-                        uri=str(self.to_details),
-                        username=self.to_details['uri']['user'],
-                        password=self.password))
-                    self.send_message(msg.method,
-                                      headers=original_msg.headers,
-                                      payload=original_msg.payload,
-                                      future=original_msg.future)
-                                      
-                elif msg.status_code == 100:
-                    pass
-                elif msg.status_code == 180:
-                    pass
-                else:
-                    if msg.method.upper() == 'REGISTER':
-                        self.register_current_attempt = None
-                    if msg.method.upper() == 'INVITE':
-                        self.invite_current_attempt = None
-                    self._msgs[msg.method].pop(msg.cseq).future.set_result(msg)  # Transaction end
+                original_msg = self._msgs[msg.method].get(msg.cseq)
+                transaction = self._pending[msg.method].get(msg.cseq)
+                transaction.feed_message(msg, original_msg=original_msg)
             else:
                 raise ValueError('This Response SIP message doesn\'t have Request: "%s"' % msg)
-
         else:
             if msg.method != 'ACK':
                 hdrs = CIMultiDict()
@@ -169,12 +182,21 @@ class Dialog:
                       headers=headers,
                       content_type=content_type,
                       payload=payload)
+
         if future:
             msg.future = future
 
-        self._msgs[method][self.cseq] = msg
+        if method != 'ACK':
+            transaction = Transaction(self, password=self.password,
+                                      future=future, loop=self.loop)
+
+            self._msgs[method][self.cseq] = msg
+            self._pending[method][self.cseq] = transaction
+            self.protocol.send_message(msg)
+            return transaction.future
+
         self.protocol.send_message(msg)
-        return msg.future if method != 'ACK' else None
+        return None
 
     def send_reply(self, status_code, status_message, to_details=None,
                    from_details=None, contact_details=None, headers=None, content_type=None,
@@ -206,10 +228,6 @@ class Dialog:
         self.app.stop_dialog(self)
 
     def register(self, headers=None, attempts=3, expires=360):
-        if self.register_current_attempt:
-            raise RegisterOngoing('Already a registration going on ! (attempt %s)'%self.register_current_attempt)
-
-        self.register_current_attempt = attempts
         if not headers:
             headers = CIMultiDict()
 
@@ -229,10 +247,6 @@ class Dialog:
 
     @asyncio.coroutine
     def invite(self, headers=None, sdp=None, attempts=3):
-        if self.invite_current_attempt:
-            raise InviteOngoing('Already a invite going on ! (attempt %s)'%self.invite_current_attempt)
-
-        self.invite_current_attempt = attempts
         if not headers:
             headers = CIMultiDict()
 

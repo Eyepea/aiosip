@@ -7,7 +7,6 @@ __all__ = ['Application']
 
 import asyncio
 from collections import MutableMapping
-import weakref
 
 from .dialog import Dialog
 from .dialplan import Dialplan
@@ -26,7 +25,7 @@ class Application(MutableMapping):
         self.logger = logger
         self._finish_callbacks = []
         self.loop = loop
-        self._dialogs = weakref.WeakValueDictionary()
+        self._dialogs = {}
         self._state = {}
         self._protocols = {}
         self._transports = {}
