@@ -1,20 +1,18 @@
-import logging
 import asyncio
+import sys
+import logging
 
 import aiosip
 
 
-def show_notify(dialog, message):
-    print(message)
-
-
 @asyncio.coroutine
-def main(loop):
+def main(port, loop):
     app = aiosip.Application(loop=loop)
+    done = asyncio.Future(loop=loop)
 
     dialog = yield from app.start_dialog(
         aiosip.Dialog,
-        from_uri='sip:subscriber@localhost:5080',
+        from_uri='sip:subscriber@localhost:{}'.format(port),
         to_uri='sip:server@localhost:5060',
         password='hunter2',
     )
@@ -26,18 +24,19 @@ def main(loop):
     except asyncio.TimeoutError:
         print('Timeout doing REGISTER!')
 
-    dialog.register_callback('NOTIFY', show_notify)
+    def show_notify(dialog, message):
+        print('NOTIFY:', message.payload)
+        if int(message.payload) == 10:
+            done.set_result(None)
 
-    headers = {
-        'Expires': '1800',
-        'Event': 'dialog',
-        'Accept': 'application/dialog-info+xml'
-    }
+    dialog.register_callback('NOTIFY', show_notify)
 
     send_future = dialog.send_message(
         method='SUBSCRIBE',
         to_details=aiosip.Contact.from_header('sip:666@localhost:5060'),
-        headers=headers,
+        headers={'Expires': '1800',
+                 'Event': 'dialog',
+                 'Accept': 'application/dialog-info+xml'}
     )
 
     try:
@@ -46,10 +45,16 @@ def main(loop):
     except asyncio.TimeoutError:
         print('Message not received!')
 
+    yield from done
     dialog.close()
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG)
+    try:
+        port = int(sys.argv[1])
+    except IndexError:
+        port = 5080
+
+    # logging.basicConfig(level=logging.DEBUG)
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(main(loop))
+    loop.run_until_complete(main(port, loop))
