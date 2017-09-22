@@ -1,6 +1,8 @@
 import re
 import string
 
+from collections import MutableMapping
+
 from .log import contact_logger
 from .param import Param
 from .uri import Uri
@@ -13,23 +15,23 @@ CONTACT_PATTERNS = [re.compile('^(?P<name>[a-zA-Z0-9\-\._\+~ \t]*)<(?P<uri>[^>]+
                     re.compile('^[ \t]*(?P<name>)(?P<uri>[^;]+)(?:;(?P<params>[^\?]*))?')]
 
 
-class Contact(dict):
+class Contact(MutableMapping):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        self._contact = dict(*args, **kwargs)
 
-        params = self.get('params')
+        params = self._contact.get('params')
         if not params:
-            self['params'] = Param()
+            self._contact['params'] = Param()
         if not isinstance(params, Param):
-            self['params'] = Param(self['params'])
+            self._contact['params'] = Param(self._contact['params'])
 
-        uri = self.get('uri')
+        uri = self._contact.get('uri')
         if not isinstance(uri, Uri):
-            self['uri'] = Uri(self['uri'])
+            self._contact['uri'] = Uri(self._contact['uri'])
 
     def add_tag(self):
         if 'tag' not in self['params']:
-            self['params']['tag'] = gen_str(16, string.digits + 'abcdef')
+            self._contact['params']['tag'] = gen_str(16, string.digits + 'abcdef')
 
     @classmethod
     def from_header(cls, contact):
@@ -41,19 +43,37 @@ class Contact(dict):
             raise ValueError('Not valid contact address')
 
     def from_repr(self):
-        r = str(self['uri'])
-        params = self['params']
+        r = str(self._contact['uri'])
+        params = self._contact['params']
         if params:
             r += ';%s' % str(params)
         return r
-
 
     def __str__(self):
         r = ''
-        if self['name']:
-            r += '"%s" ' % self['name']
-        r += self['uri'].contact_repr()
-        params = self['params']
+        if self._contact['name']:
+            r += '"%s" ' % self._contact['name']
+        r += self._contact['uri'].contact_repr()
+        params = self._contact['params']
         if params:
             r += ';%s' % str(params)
         return r
+
+    # MutableMapping API
+    def __eq__(self, other):
+        return self is other
+
+    def __getitem__(self, key):
+        return self._contact[key]
+
+    def __setitem__(self, key, value):
+        self._contact[key] = value
+
+    def __delitem__(self, key):
+        del self._contact[key]
+
+    def __len__(self):
+        return len(self._contact)
+
+    def __iter__(self):
+        return iter(self._contact)
