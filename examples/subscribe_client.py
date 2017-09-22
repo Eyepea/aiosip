@@ -1,37 +1,39 @@
 import asyncio
-import sys
 import logging
+import random
+import sys
 
 import aiosip
 
+sip_config = {
+    'srv_host': '127.0.0.1',
+    'srv_port': 6000,
+    'realm': 'XXXXXX',
+    'user': 'YYYYYY',
+    'pwd': 'ZZZZZZ',
+    'local_ip': '127.0.0.1',
+    'local_port': random.randint(6001, 6100)
+}
+
 
 @asyncio.coroutine
-def main(port, loop):
-    app = aiosip.Application(loop=loop)
-    done = asyncio.Future(loop=loop)
+def show_notify(dialog, message):
+    print('NOTIFY:', message.payload)
 
+
+@asyncio.coroutine
+def start(app, protocol):
     dialog = yield from app.start_dialog(
-        aiosip.Dialog,
-        from_uri='sip:subscriber@localhost:{}'.format(port),
-        to_uri='sip:server@localhost:5060',
+        protocol=protocol,
+        from_uri='sip:subscriber@localhost:{}'.format(sip_config['local_port']),
+        to_uri='sip:server@localhost:{}'.format(sip_config['srv_port']),
         password='hunter2',
     )
-
-    fut = dialog.register()
-    try:
-        result = yield from asyncio.wait_for(fut, 5, loop=loop)
-        print('Register OK')
-    except asyncio.TimeoutError:
-        print('Timeout doing REGISTER!')
-
-    def show_notify(dialog, message):
-        print('NOTIFY:', message.payload)
-        if int(message.payload) == 10:
-            done.set_result(None)
-
     dialog.register_callback('NOTIFY', show_notify)
 
-    send_future = dialog.send_message(
+    yield from dialog.register()
+
+    yield from dialog.send_message(
         method='SUBSCRIBE',
         to_details=aiosip.Contact.from_header('sip:666@localhost:5060'),
         headers={'Expires': '1800',
@@ -39,22 +41,22 @@ def main(port, loop):
                  'Accept': 'application/dialog-info+xml'}
     )
 
-    try:
-        result = yield from asyncio.wait_for(send_future, 5, loop=loop)
-        print('%s: %s' % (result.status_code, result.status_message))
-    except asyncio.TimeoutError:
-        print('Message not received!')
-
-    yield from done
+    yield from asyncio.sleep(20)
     dialog.close()
 
 
-if __name__ == '__main__':
-    try:
-        port = int(sys.argv[1])
-    except IndexError:
-        port = 5080
-
-    # logging.basicConfig(level=logging.DEBUG)
+def main():
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(main(port, loop))
+    app = aiosip.Application(loop=loop)
+
+    if len(sys.argv) > 1 and sys.argv[1] == 'tcp':
+        loop.run_until_complete(start(app, aiosip.TCP))
+    else:
+        loop.run_until_complete(start(app, aiosip.UDP))
+
+    loop.close()
+
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG)
+    main()
