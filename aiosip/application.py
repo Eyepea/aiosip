@@ -18,7 +18,11 @@ from .log import application_logger
 
 class Application(MutableMapping):
 
-    def __init__(self, *, logger=application_logger, loop=None):
+    def __init__(self, *,
+                 logger=application_logger,
+                 loop=None,
+                 dialog_factory=Dialog
+                 ):
         if loop is None:
             loop = asyncio.get_event_loop()
 
@@ -29,6 +33,7 @@ class Application(MutableMapping):
         self._state = {}
         self._protocols = {}
         self.dialplan = Dialplan()
+        self._dialog_factory = dialog_factory
 
     @asyncio.coroutine
     def start_dialog(self,
@@ -56,7 +61,7 @@ class Application(MutableMapping):
         if not call_id:
             call_id = str(uuid.uuid4())
 
-        dialog = dialog_factory()
+        dialog = self._dialog_factory()
         dialog.connection_made(app=self,
                                from_uri=from_uri,
                                to_uri=to_uri,
@@ -128,8 +133,8 @@ class Application(MutableMapping):
                        msg.contact_details['uri']['port'])
 
         self._protocols[type(protocol), local_addr, remote_addr] = protocol
+        dialog = self._dialog_factory()
 
-        dialog = Dialog()
         dialog.connection_made(app=self,
                                from_uri=msg.headers['From'],
                                to_uri=msg.headers['To'],
