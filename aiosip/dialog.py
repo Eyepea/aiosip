@@ -192,10 +192,10 @@ class Dialog:
 
             self._msgs[method][self.cseq] = msg
             self._pending[method][self.cseq] = transaction
-            self.protocol.send_message(msg)
+            self.protocol.send_message(msg, self.remote_addr)
             return transaction.future
 
-        self.protocol.send_message(msg)
+        self.protocol.send_message(msg, self.remote_addr)
         return None
 
     def send_reply(self, status_code, status_message, to_details=None,
@@ -222,7 +222,7 @@ class Dialog:
                        payload=payload)
         if future:
             msg.future = future
-        self.protocol.send_message(msg)
+        self.protocol.send_message(msg, self.remote_addr)
 
     def close(self):
         self.app.stop_dialog(self)

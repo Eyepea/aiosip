@@ -2,15 +2,15 @@
 Same structure as aiohttp.web.Application
 """
 import uuid
+import asyncio
 
 __all__ = ['Application']
 
-import asyncio
 from collections import MutableMapping
 
 from .dialog import Dialog
 from .dialplan import Dialplan
-from .protocol import UDP
+from .protocol import UDP, TCP, CLIENT, SERVER
 from .contact import Contact
 
 from .log import application_logger
@@ -28,14 +28,13 @@ class Application(MutableMapping):
         self._dialogs = {}
         self._state = {}
         self._protocols = {}
-        self._transports = {}
         self.dialplan = Dialplan()
 
     @asyncio.coroutine
     def start_dialog(self,
-                     dialog_factory,
                      from_uri,
                      to_uri,
+                     dialog_factory=Dialog,
                      contact_uri=None,
                      call_id=None,
                      protocol=UDP,
@@ -52,7 +51,7 @@ class Application(MutableMapping):
             remote_addr = (contact['uri']['host'],
                            contact['uri']['port'])
 
-        proto = yield from self.create_connection(protocol, local_addr, remote_addr)
+        proto = yield from self.create_connection(protocol, local_addr, remote_addr, mode=CLIENT)
 
         if not call_id:
             call_id = str(uuid.uuid4())
@@ -78,35 +77,47 @@ class Application(MutableMapping):
         del self._dialogs[dialog['call_id']]
 
     @asyncio.coroutine
-    def create_connection(self, protocol, local_addr, remote_addr, mode='client'):
+    def create_connection(self, protocol=UDP, local_addr=None, remote_addr=None, mode=CLIENT):
+
+        if protocol not in (UDP, TCP):
+            raise ValueError('Impossible to connect with this protocol class')
+
         if (protocol, local_addr, remote_addr) in self._protocols:
             proto = self._protocols[protocol, local_addr, remote_addr]
-        else:
-            if issubclass(protocol, asyncio.DatagramProtocol):
-                trans, proto = yield from self.loop.create_datagram_endpoint(
-                    self.make_handler(protocol),
-                    local_addr=local_addr,
-                    remote_addr=remote_addr,
-                )
-            elif issubclass(protocol, asyncio.Protocol) and mode == 'client':
-                trans, proto = yield from self.loop.create_connection(
-                    self.make_handler(protocol),
-                    local_addr=local_addr,
-                    host=remote_addr[0],
-                    port=remote_addr[1])
-            elif issubclass(protocol, asyncio.Protocol) and mode == 'server':
-                trans, proto = yield from self.loop.create_server(
-                    self.make_handler(protocol),
-                    host=remote_addr[0],
-                    port=remote_addr[1])
-            else:
-                raise Exception('Impossible to connect with this protocol class')
+            yield from proto.ready
+            return proto
+
+        if protocol is UDP:
+            trans, proto = yield from self.loop.create_datagram_endpoint(
+                self.make_handler(protocol),
+                local_addr=local_addr,
+                remote_addr=remote_addr,
+            )
 
             self._protocols[protocol, local_addr, remote_addr] = proto
-            self._transports[protocol, local_addr, remote_addr] = trans
+            yield from proto.ready
+            return proto
 
-        yield from proto.ready
-        return proto
+        elif protocol is TCP and mode is CLIENT:
+            trans, proto = yield from self.loop.create_connection(
+                self.make_handler(protocol),
+                local_addr=local_addr,
+                host=remote_addr[0],
+                port=remote_addr[1])
+
+            self._protocols[protocol, local_addr, remote_addr] = proto
+            yield from proto.ready
+            return proto
+
+        elif protocol is TCP and mode is SERVER:
+            server = yield from self.loop.create_server(
+                self.make_handler(protocol),
+                host=local_addr[0],
+                port=local_addr[1])
+            return server
+
+        else:
+            raise ValueError('Impossible to connect with this mode and protocol class')
 
     @asyncio.coroutine
     def handle_incoming(self, protocol, msg, addr, route):
@@ -116,13 +127,14 @@ class Application(MutableMapping):
         remote_addr = (msg.contact_details['uri']['host'],
                        msg.contact_details['uri']['port'])
 
-        proto = yield from self.create_connection(protocol, local_addr, remote_addr)
+        self._protocols[type(protocol), local_addr, remote_addr] = protocol
+
         dialog = Dialog()
         dialog.connection_made(app=self,
                                from_uri=msg.headers['From'],
                                to_uri=msg.headers['To'],
                                call_id=msg.headers['Call-ID'],
-                               protocol=proto,
+                               protocol=protocol,
                                local_addr=local_addr,
                                remote_addr=remote_addr,
                                password=None,
@@ -130,6 +142,11 @@ class Application(MutableMapping):
 
         self._dialogs[msg.headers['Call-ID']] = dialog
         yield from route(dialog, msg)
+
+    def connection_lost(self, protocol):
+        del self._protocols[type(protocol),
+                            protocol.transport.get_extra_info('sockname'),
+                            protocol.transport.get_extra_info('peername')]
 
     def dispatch(self, protocol, msg, addr):
         # key = (protocol, msg.from_details.from_repr(), msg.to_details['uri'].short_uri(), msg.headers['Call-ID'])

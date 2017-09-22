@@ -11,11 +11,15 @@ URI_PATTERN = re.compile('^(?P<scheme>[a-zA-Z][a-zA-Z0-9\+\-\.]*):'  # scheme
                          + '(?:;(?P<params>[^\?]*))?' # parameters
                          + '(?:\?(?P<headers>.*))?$') # headers
 
+
 class Uri(dict):
     def __init__(self, uri):
         super().__init__(URI_PATTERN.match(uri).groupdict())
         if 'host' not in self:
             raise ValueError('host is a mandatory field')
+        elif self['host'] == 'localhost':
+            self['host'] = '127.0.0.1'
+
         if self['port']:
             self['port'] = int(self['port'])
         if self['params']:
