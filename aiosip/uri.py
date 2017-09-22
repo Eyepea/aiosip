@@ -1,5 +1,7 @@
 import re
 
+from collections import MutableMapping
+
 from .param import Param
 
 
@@ -12,42 +14,42 @@ URI_PATTERN = re.compile('^(?P<scheme>[a-zA-Z][a-zA-Z0-9\+\-\.]*):'  # scheme
                          + '(?:\?(?P<headers>.*))?$') # headers
 
 
-class Uri(dict):
+class Uri(MutableMapping):
     def __init__(self, uri):
-        super().__init__(URI_PATTERN.match(uri).groupdict())
-        if 'host' not in self:
+        self._uri = URI_PATTERN.match(uri).groupdict()
+        if 'host' not in self._uri:
             raise ValueError('host is a mandatory field')
-        elif self['host'] == 'localhost':
-            self['host'] = '127.0.0.1'
+        elif self._uri['host'] == 'localhost':
+            self._uri['host'] = '127.0.0.1'
 
-        if self['port']:
-            self['port'] = int(self['port'])
-        if self['params']:
-            self['params'] = Param(self['params'])
+        if self._uri['port']:
+            self._uri['port'] = int(self._uri['port'])
+        if self._uri['params']:
+            self._uri['params'] = Param(self._uri['params'])
 
     def short_uri(self):
         r = ''
-        if self['scheme']:
-            r += '%s:' % self['scheme']
-        if self['user']:
-            r += self['user']
-            if self['password']:
-                r += ':%s' % self['password']
+        if self._uri['scheme']:
+            r += '%s:' % self._uri['scheme']
+        if self._uri['user']:
+            r += self._uri['user']
+            if self._uri['password']:
+                r += ':%s' % self._uri['password']
             r += '@'
-        if self['host']:
-            r += self['host']
+        if self._uri['host']:
+            r += self._uri['host']
         else:
             raise ValueError('host is a mandatory field')
-        if self['port']:
-            r += ':%s' % self['port']
+        if self._uri['port']:
+            r += ':%s' % self._uri['port']
         return r
 
     def optional_params(self):
         r = ''
-        if self['params']:
-            r += ';%s' % self['params']
-        if self['headers']:
-            r += '?%s' % self['headers']
+        if self._uri['params']:
+            r += ';%s' % self._uri['params']
+        if self._uri['headers']:
+            r += '?%s' % self._uri['headers']
         return r
 
     def contact_repr(self):
@@ -58,3 +60,22 @@ class Uri(dict):
         r = self.short_uri()
         r += self.optional_params()
         return r
+
+    # MutableMapping API
+    def __eq__(self, other):
+        return self is other
+
+    def __getitem__(self, key):
+        return self._uri[key]
+
+    def __setitem__(self, key, value):
+        self._uri[key] = value
+
+    def __delitem__(self, key):
+        del self._uri[key]
+
+    def __len__(self):
+        return len(self._uri)
+
+    def __iter__(self):
+        return iter(self._uri)

@@ -19,6 +19,7 @@ FIRST_LINE_PATTERN = \
           'str': 'SIP/2.0 %(status_code)s %(status_message)s'},
     }
 
+
 class Message:
     def __init__(self,
                  # from_uri,
