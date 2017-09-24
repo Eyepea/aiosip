@@ -113,16 +113,35 @@ class Dialog:
             msg.future = future
 
         if method != 'ACK':
-            transaction = Transaction(self, password=self.password,
-                                      future=future, loop=self.loop)
-
-            self._msgs[method][self.cseq] = msg
-            self._pending[method][self.cseq] = transaction
-            self.protocol.send_message(msg, self.remote_addr)
-            return transaction.future
+            return self.start_transaction(method, msg, future=future)
 
         self.protocol.send_message(msg, self.remote_addr)
         return None
+
+    def start_transaction(self, method, msg, *, future=None):
+        transaction = Transaction(self, password=self.password,
+                                  future=future, loop=self.loop)
+
+        def _done_callback(result):
+            if result.cancelled():
+                hdrs = CIMultiDict()
+                hdrs['From'] = msg.headers['From']
+                hdrs['To'] = msg.headers['To']
+                hdrs['Call-ID'] = msg.headers['Call-ID']
+                hdrs['CSeq'] = msg.headers['CSeq'].replace(method, 'CANCEL')
+                hdrs['Via'] = msg.headers['Via']
+                self.send_message(method='CANCEL', headers=hdrs)
+
+        self._msgs[method][self.cseq] = msg
+        self._pending[method][self.cseq] = transaction
+
+        future = transaction.future
+
+        if method in ('REGISTER', 'INVITE', 'SUBSCRIBE'):
+            future.add_done_callback(_done_callback)
+
+        self.protocol.send_message(msg, self.remote_addr)
+        return future
 
     def send_reply(self, status_code, status_message, to_details=None,
                    from_details=None, contact_details=None, headers=None, content_type=None,

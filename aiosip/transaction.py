@@ -80,7 +80,7 @@ class Transaction:
 
         elif 100 <= msg.status_code < 200:
             pass
-        else:
+        elif not self.future.done():
             self.future.set_result(msg)
 
     def __await__(self):
