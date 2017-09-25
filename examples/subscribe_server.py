@@ -16,39 +16,40 @@ sip_config = {
 
 
 @asyncio.coroutine
-def handle_subscribe(dialog, message):
-    for idx in range(1, 11):
-        yield from dialog.send_message('NOTIFY',
-                                       to_details=message.to_details,
-                                       from_details=message.from_details,
-                                       headers={'Via': message.headers['Via'],
-                                                'Call-ID': message.headers['Call-ID']},
-                                       payload=str(idx))
+def notify(dialog):
+    for idx in range(1, 4):
+        yield from dialog.send('NOTIFY',
+                               payload=str(idx))
         yield from asyncio.sleep(1)
 
 
 @asyncio.coroutine
-def start_subscription(dialog, message):
-    assert message.method == 'REGISTER'
+def handler(dialog, message):
+    if message.method == 'REGISTER':
+        response = aiosip.Response.from_request(
+            request=message,
+            status_code=200,
+            status_message='OK',
+        )
 
-    dialog.register_callback('SUBSCRIBE', handle_subscribe)
+        dialog.reply(response)
+        print('Registration succesfull')
+    elif message.method == 'SUBSCRIBE':
+        response = aiosip.Response.from_request(
+            request=message,
+            status_code=200,
+            status_message='OK',
+        )
 
-    dialog.send_reply(status_code=200,
-                      status_message='OK',
-                      to_details=message.to_details,
-                      from_details=message.from_details,
-                      headers={'Via': message.headers['Via'],
-                               'CSeq': message.headers['CSeq'],
-                               'Call-ID': message.headers['Call-ID']})
-
-    print('Subscription started!')
+        dialog.reply(response)
+        print('Subscription started!')
+        yield from notify(dialog)
 
 
 def main_tcp(app):
     server = app.loop.run_until_complete(
-        app.create_connection(
+        app.run(
             protocol=aiosip.TCP,
-            mode=aiosip.SERVER,
             local_addr=(sip_config['local_ip'], sip_config['local_port'])
         )
     )
@@ -66,8 +67,8 @@ def main_tcp(app):
 
 
 def main_udp(app):
-    protocol = app.loop.run_until_complete(
-        app.create_connection(
+    server = app.loop.run_until_complete(
+        app.run(
             local_addr=(sip_config['local_ip'], sip_config['local_port'])
         )
     )
@@ -85,7 +86,7 @@ def main_udp(app):
 def main():
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
-    app.dialplan.add_user('subscriber', start_subscription)
+    app.dialplan.add_user('subscriber', handler)
 
     if len(sys.argv) > 1 and sys.argv[1] == 'tcp':
         main_tcp(app)

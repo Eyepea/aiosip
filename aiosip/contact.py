@@ -30,7 +30,7 @@ class Contact(MutableMapping):
             self._contact['uri'] = Uri(self._contact['uri'])
 
     def add_tag(self):
-        if 'tag' not in self['params']:
+        if 'tag' not in self._contact['params']:
             self._contact['params']['tag'] = gen_str(16, string.digits + 'abcdef')
 
     @classmethod
