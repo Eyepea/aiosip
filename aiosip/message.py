@@ -1,3 +1,4 @@
+import logging
 import asyncio
 import re
 import sys
@@ -10,45 +11,59 @@ from .contact import Contact
 import aiosip
 from pyquery import PyQuery
 
-FIRST_LINE_PATTERN = \
-    {'request':
-         {'regex': re.compile(r'(?P<method>[A-Za-z]+) (?P<to_uri>.+) SIP/2.0'),
-          'str': '%(method)s %(to_uri)s SIP/2.0'},
-     'response':
-         {'regex': re.compile(r'SIP/2.0 (?P<status_code>[0-9]{3}) (?P<status_message>.+)'),
-          'str': 'SIP/2.0 %(status_code)s %(status_message)s'},
-    }
+FIRST_LINE_PATTERN = {
+    'request': {
+        'regex': re.compile(r'(?P<method>[A-Za-z]+) (?P<to_uri>.+) SIP/2.0'),
+        'str': '%(method)s %(to_uri)s SIP/2.0'},
+    'response': {
+        'regex': re.compile(r'SIP/2.0 (?P<status_code>[0-9]{3}) (?P<status_message>.+)'),
+        'str': 'SIP/2.0 %(status_code)s %(status_message)s'},
+}
+
+
+LOG = logging.getLogger(__name__)
 
 
 class Message:
     def __init__(self,
-                 # from_uri,
-                 # to_uri,
                  content_type=None,
                  headers=None,
-                 payload=None):
-        # self.from_uri = from_uri
-        # self.to_uri = to_uri
+                 payload=None,
+                 from_details=None,
+                 to_details=None,
+                 contact_details=None):
+
+        self.from_details = from_details
+        self.to_details = to_details
+        self.contact_details = contact_details
+
         if headers:
             self.headers = headers
         else:
             self.headers = CIMultiDict()
 
-        for direction in ('From', 'To', 'Contact'): # parse From, To, and Contact headers
-            direction_attribute = '%s_details' % direction.lower()
-            if direction in self.headers:
-                if not hasattr(self, direction_attribute):
-                    setattr(self,
-                            direction_attribute,
-                            Contact.from_header(self.headers[direction]))
-            elif hasattr(self, direction_attribute):
-                contact = getattr(self, direction_attribute)
-                self.headers[direction] = str(contact)
-            elif direction != 'Contact':
-                raise(ValueError('You must have a "%s" header or details.' % direction))
+        if 'From' in self.headers:
+            self.from_details = Contact.from_header(self.headers['From'])
+        elif self.from_details:
+            self.headers['From'] = str(self.from_details)
+        else:
+            raise ValueError('From header or from_details is required')
 
-            if content_type:
-                self.headers['Content-Type'] = content_type
+        if 'To' in self.headers:
+            self.to_details = Contact.from_header(self.headers['To'])
+        elif self.to_details:
+            self.headers['To'] = str(self.to_details)
+        else:
+            raise ValueError('To header or to_details is required')
+
+        if 'Contact' in self.headers:
+            self.contact_details = Contact.from_header(self.headers['Contact'])
+        elif self.contact_details:
+            self.headers['Contact'] = str(self.contact_details)
+
+        if content_type:
+            self.headers['Content-Type'] = content_type
+
         self.payload = payload
 
         # Build the message
@@ -136,9 +151,11 @@ class Message:
             m = FIRST_LINE_PATTERN['request']['regex'].match(first_line)
             if m:
                 d = m.groupdict()
+                cseq, _ = headers['CSeq'].split()
                 return Request(method=d['method'],
                                headers=headers,
-                               payload=payload)
+                               payload=payload,
+                               cseq=int(cseq))
             else:
                     raise ValueError('Not a SIP message')
 
@@ -152,19 +169,21 @@ class Request(Message):
                  contact_details=None,
                  headers=None,
                  content_type=None,
-                 payload=None):
-        if from_details:
-            self.from_details = from_details
-        if to_details:
-            self.to_details = to_details
-        if contact_details:
-            self.contact_details = contact_details
-        super().__init__(content_type=content_type,
-                         headers=headers,
-                         payload=payload)
+                 payload=None,
+                 future=None):
+
+        super().__init__(
+            content_type=content_type,
+            headers=headers,
+            payload=payload,
+            from_details=from_details,
+            to_details=to_details,
+            contact_details=contact_details
+        )
+
         self._method = method
         self._cseq = cseq
-        self.future = asyncio.Future()
+        self.future = future or asyncio.Future()
 
         if 'CSeq' not in self.headers:
             self.headers['CSeq'] = '%s %s' % (cseq, self.method)
@@ -184,18 +203,41 @@ class Response(Message):
                  to_details=None,
                  contact_details=None,
                  content_type=None,
-                 payload=None):
+                 payload=None,
+                 cseq=None,
+                 method=None,
+                 ):
+
         self.status_code = status_code
         self.status_message = status_message
-        if from_details:
-            self.from_details = from_details
-        if to_details:
-            self.to_details = to_details
-        if contact_details:
-            self.contact_details = contact_details
-        super().__init__(content_type=content_type,
-                         headers=headers,
-                         payload=payload)
+
+        super().__init__(
+            content_type=content_type,
+            headers=headers,
+            payload=payload,
+            from_details=from_details,
+            to_details=to_details,
+            contact_details=contact_details
+        )
+
+        if 'CSeq' not in self.headers and method and cseq:
+            self.headers['CSeq'] = '%s %s' % (cseq, method)
+
+    @classmethod
+    def from_request(cls, request, status_code, status_message, payload=None, headers=None, content_type=None):
+
+        return Response(
+            status_code=status_code,
+            status_message=status_message,
+            cseq=request.cseq,
+            method=request.method,
+            headers=headers,
+            from_details=request.from_details,
+            to_details=request.to_details,
+            contact_details=request.contact_details,
+            payload=payload,
+            content_type=content_type
+        )
 
     def __str__(self):
         message = FIRST_LINE_PATTERN['response']['str'] % self.__dict__

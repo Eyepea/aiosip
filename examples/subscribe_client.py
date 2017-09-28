@@ -9,8 +9,8 @@ sip_config = {
     'srv_host': '127.0.0.1',
     'srv_port': 6000,
     'realm': 'XXXXXX',
-    'user': 'YYYYYY',
-    'pwd': 'ZZZZZZ',
+    'user': 'subscriber',
+    'pwd': 'hunter2',
     'local_ip': '127.0.0.1',
     'local_port': random.randint(6001, 6100)
 }
@@ -22,32 +22,52 @@ def show_notify(dialog, message):
 
 
 @asyncio.coroutine
-def start(app, protocol):
-    dialog = yield from app.start_dialog(
-        protocol=protocol,
-        from_uri='sip:subscriber@localhost:{}'.format(sip_config['local_port']),
-        to_uri='sip:server@localhost:{}'.format(sip_config['srv_port']),
-        password='hunter2',
+def option(dialog, request):
+
+    response = aiosip.Response.from_request(
+        request=request,
+        status_code=200,
+        status_message='OK'
     )
-    dialog.register_callback('NOTIFY', show_notify)
+    dialog.reply(response)
 
-    yield from dialog.register()
 
-    yield from dialog.send_message(
+@asyncio.coroutine
+def start(app, protocol):
+
+    connection = yield from app.connect((sip_config['local_ip'], sip_config['local_port']),
+                                        (sip_config['srv_host'], sip_config['srv_port']),
+                                        protocol)
+
+    register_dialog = connection.create_dialog(
+        from_uri='sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_ip'], sip_config['local_port']),
+        to_uri='sip:{}@{}:{}'.format(sip_config['user'], sip_config['srv_host'], sip_config['srv_port']),
+        password=sip_config['pwd'],
+    )
+    yield from register_dialog.register()
+    register_dialog.close()
+
+    subscribe_dialog = connection.create_dialog(
+        from_uri='sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_ip'], sip_config['local_port']),
+        to_uri='sip:666@{}:{}'.format(sip_config['srv_host'], sip_config['srv_port']),
+        password=sip_config['pwd']
+    )
+    subscribe_dialog.register_callback('NOTIFY', show_notify)
+    yield from subscribe_dialog.send(
         method='SUBSCRIBE',
-        to_details=aiosip.Contact.from_header('sip:666@localhost:5060'),
         headers={'Expires': '1800',
                  'Event': 'dialog',
                  'Accept': 'application/dialog-info+xml'}
     )
 
     yield from asyncio.sleep(20)
-    dialog.close()
+    subscribe_dialog.close()
 
 
 def main():
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
+    app.dialplan.add_user('asterisk', option)
 
     if len(sys.argv) > 1 and sys.argv[1] == 'tcp':
         loop.run_until_complete(start(app, aiosip.TCP))

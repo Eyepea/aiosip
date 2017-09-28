@@ -1,7 +1,6 @@
 """
 Same structure as aiohttp.web.Application
 """
-import uuid
 import asyncio
 
 __all__ = ['Application']
@@ -10,8 +9,9 @@ from collections import MutableMapping
 
 from .dialog import Dialog
 from .dialplan import Dialplan
-from .protocol import UDP, TCP, CLIENT, SERVER
-from .contact import Contact
+from .protocol import UDP, CLIENT, SERVER
+from .connections import Connection
+from .message import Request, Response
 
 from .log import application_logger
 
@@ -29,92 +29,61 @@ class Application(MutableMapping):
         self.logger = logger
         self._finish_callbacks = []
         self.loop = loop
-        self._dialogs = {}
         self._state = {}
-        self._protocols = {}
+        self._connections = {}
         self.dialplan = Dialplan()
-        self._dialog_factory = dialog_factory
+        self.dialog_factory = dialog_factory
+
+    @property
+    def dialogs(self):
+        for connection in self._connections:
+            yield from connection.dialogs.values()
+
+    @property
+    def connections(self):
+        yield from self._connections.values()
 
     @asyncio.coroutine
-    def start_dialog(self,
-                     from_uri,
-                     to_uri,
-                     dialog_factory=Dialog,
-                     contact_uri=None,
-                     call_id=None,
-                     protocol=UDP,
-                     local_addr=None,
-                     remote_addr=None,
-                     password=''):
-
-        if local_addr is None:
-            contact = Contact.from_header(contact_uri if contact_uri else from_uri)
-            local_addr = (contact['uri']['host'],
-                          contact['uri']['port'])
-        if remote_addr is None:
-            contact = Contact.from_header(to_uri)
-            remote_addr = (contact['uri']['host'],
-                           contact['uri']['port'])
-
-        proto = yield from self.create_connection(protocol, local_addr, remote_addr, mode=CLIENT)
-
-        if not call_id:
-            call_id = str(uuid.uuid4())
-
-        dialog = self._dialog_factory()
-        dialog.connection_made(app=self,
-                               from_uri=from_uri,
-                               to_uri=to_uri,
-                               call_id=call_id,
-                               protocol=proto,
-                               contact_uri=contact_uri,
-                               local_addr=local_addr,
-                               remote_addr=remote_addr,
-                               password=password,
-                               loop=self.loop)
-
-        self._dialogs[call_id] = dialog
-        return dialog
+    def connect(self, local_addr, remote_addr, protocol=UDP):
+        connection = yield from self._create_connection(local_addr, remote_addr, protocol=protocol, mode=CLIENT)
+        return connection
 
     @asyncio.coroutine
-    def stop_dialog(self, dialog):
-        dialog.callbacks = {}
-        del self._dialogs[dialog['call_id']]
+    def run(self, local_addr, protocol=UDP):
+        server = yield from self._create_connection(local_addr, protocol=protocol, mode=SERVER)
+        return server
 
     @asyncio.coroutine
-    def create_connection(self, protocol=UDP, local_addr=None, remote_addr=None, mode=CLIENT):
+    def _create_connection(self, local_addr=None, remote_addr=None, protocol=UDP, mode=CLIENT):
 
-        if protocol not in (UDP, TCP):
-            raise ValueError('Impossible to connect with this protocol class')
+        if (protocol, local_addr, remote_addr) in self._connections:
+            return self._connections[protocol, local_addr, remote_addr]
 
-        if (protocol, local_addr, remote_addr) in self._protocols:
-            proto = self._protocols[protocol, local_addr, remote_addr]
-            yield from proto.ready
-            return proto
-
-        if protocol is UDP:
+        if issubclass(protocol, asyncio.DatagramProtocol):
             trans, proto = yield from self.loop.create_datagram_endpoint(
                 self.make_handler(protocol),
                 local_addr=local_addr,
                 remote_addr=remote_addr,
             )
 
-            self._protocols[protocol, local_addr, remote_addr] = proto
+            connection = Connection(local_addr, remote_addr, proto, self)
+            self._connections[local_addr, remote_addr, protocol] = connection
             yield from proto.ready
-            return proto
+            return connection
 
-        elif protocol is TCP and mode is CLIENT:
+        elif issubclass(protocol, asyncio.Protocol) and mode is CLIENT:
             trans, proto = yield from self.loop.create_connection(
                 self.make_handler(protocol),
                 local_addr=local_addr,
                 host=remote_addr[0],
                 port=remote_addr[1])
 
-            self._protocols[protocol, local_addr, remote_addr] = proto
+            connection = Connection(local_addr, remote_addr, proto, self)
+            self._connections[local_addr, remote_addr, protocol] = connection
             yield from proto.ready
-            return proto
+            return connection
 
-        elif protocol is TCP and mode is SERVER:
+        elif issubclass(protocol, asyncio.Protocol) and mode is SERVER:
             server = yield from self.loop.create_server(
                 self.make_handler(protocol),
                 host=local_addr[0],
@@ -122,55 +91,53 @@ class Application(MutableMapping):
             return server
 
         else:
-            raise ValueError('Impossible to connect with this mode and protocol class')
+            raise ValueError('Impossible to connect with this protocol class')
 
-    @asyncio.coroutine
-    def handle_incoming(self, protocol, msg, addr, route):
-        local_addr = (msg.to_details['uri']['host'],
-                      msg.to_details['uri']['port'])
+    def _connection_lost(self, protocol):
+        local_addr = protocol.transport.get_extra_info('sockname')
+        remote_addr = protocol.transport.get_extra_info('peername')
 
-        remote_addr = (msg.contact_details['uri']['host'],
-                       msg.contact_details['uri']['port'])
-
-        self._protocols[type(protocol), local_addr, remote_addr] = protocol
-        dialog = self._dialog_factory()
-
-        dialog.connection_made(app=self,
-                               from_uri=msg.headers['From'],
-                               to_uri=msg.headers['To'],
-                               call_id=msg.headers['Call-ID'],
-                               protocol=protocol,
-                               local_addr=local_addr,
-                               remote_addr=remote_addr,
-                               password=None,
-                               loop=self.loop)
-
-        self._dialogs[msg.headers['Call-ID']] = dialog
-        yield from route(dialog, msg)
-
-    def connection_lost(self, protocol):
-        del self._protocols[type(protocol),
-                            protocol.transport.get_extra_info('sockname'),
-                            protocol.transport.get_extra_info('peername')]
+        try:
+            connection = self._connections[local_addr, remote_addr, type(protocol)]
+        except KeyError:
+            pass
+        else:
+            connection._connection_lost()
 
     def dispatch(self, protocol, msg, addr):
         # key = (protocol, msg.from_details.from_repr(), msg.to_details['uri'].short_uri(), msg.headers['Call-ID'])
         key = msg.headers['Call-ID']
+        local_addr = protocol.transport.get_extra_info('sockname')
+        remote_addr = protocol.transport.get_extra_info('peername')
 
-        if key in self._dialogs:
-            self._dialogs[key].receive_message(msg)
-        else:
-            self.logger.debug('A new dialog starts...')
+        if not remote_addr:
+            if isinstance(msg, Request):
+                remote_addr = (msg.from_details['uri']['host'],
+                               msg.from_details['uri']['port'])
+            else:
+                remote_addr = (msg.to_details['uri']['host'],
+                               msg.to_details['uri']['port'])
+
+        connection = self._connections.get((local_addr, remote_addr, type(protocol)))
+        if not connection:
+            self.logger.debug('New connection for %s', remote_addr)
+            connection = Connection(local_addr, remote_addr, protocol, self)
+            self._connections[local_addr, remote_addr, type(protocol)] = connection
+
+        dialog = connection.dialogs.get(key)
+        if not dialog:
             route = self.dialplan.resolve(msg)
             if route:
-                dialog = self.handle_incoming(protocol, msg, addr, route)
-                self.loop.call_soon(asyncio.ensure_future, dialog)
-
-    def send_message(self, protocol, local_addr, remote_addr, msg):
-        if (protocol, local_addr, remote_addr) in self._protocols:
-            self._protocols[protocol, local_addr, remote_addr].send_message(msg)
+                self.logger.debug('New dialog for %s, ID: "%s"', remote_addr, key)
+                dialog = connection.create_dialog(
+                    from_uri=msg.headers['To'],
+                    to_uri=msg.headers['From'],
+                    password=None,
+                    call_id=msg.headers['Call-ID'],
+                )
+                asyncio.ensure_future(route(dialog, msg))
         else:
-            raise ValueError('No protocol to send message')
+            dialog.receive_message(msg)
 
     @asyncio.coroutine
     def finish(self):

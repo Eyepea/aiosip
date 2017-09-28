@@ -44,7 +44,7 @@ class TCP(asyncio.Protocol):
         self.transport = None
         self.ready = asyncio.Future()
 
-    def send_message(self, msg, _):
+    def send_message(self, msg):
         msg.headers['Via'] %= {'protocol': TCP.__name__.upper()}
         protocol_logger.debug('Sent via TCP: "%s"', msg)
         self.transport.write(str(msg).encode())
@@ -65,4 +65,4 @@ class TCP(asyncio.Protocol):
         protocol_logger.debug('Connection lost from {}'.format(
             self.transport.get_extra_info('peername')))
         super().connection_lost(error)
-        self.app.connection_lost(self)
+        self.app._connection_lost(self)
