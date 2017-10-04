@@ -1,9 +1,9 @@
 import re
 import string
+import logging
 
 from collections import MutableMapping
 
-from .log import contact_logger
 from .param import Param
 from .uri import Uri
 from .utils import gen_str
@@ -13,6 +13,9 @@ from .utils import gen_str
 CONTACT_PATTERNS = [re.compile('^(?P<name>[a-zA-Z0-9\-\._\+~ \t]*)<(?P<uri>[^>]+)>(?:;(?P<params>[^\?]*))?'),
                     re.compile('^(?:"(?P<name>[^"]+)")[ \t]*<(?P<uri>[^>]+)>(?:;(?P<params>[^\?]*))?'),
                     re.compile('^[ \t]*(?P<name>)(?P<uri>[^;]+)(?:;(?P<params>[^\?]*))?')]
+
+
+LOG = logging.getLogger(__name__)
 
 
 class Contact(MutableMapping):

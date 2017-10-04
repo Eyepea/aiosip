@@ -6,10 +6,8 @@ from multidict import CIMultiDict
 from aiosip.auth import Auth
 
 from .contact import Contact
-from .log import dialog_logger
 from .message import Request, Response
-from .call import Call
-from .exceptions import RegisterFailed, RegisterOngoing, InviteFailed, InviteOngoing
+from .exceptions import RegisterFailed, InviteFailed
 
 from functools import partial
 
@@ -85,7 +83,15 @@ class Transaction:
                                      headers=original_msg.headers,
                                      payload=original_msg.payload,
                                      future=self.futrue)
-
+        elif original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
+            hdrs = CIMultiDict()
+            hdrs['From'] = msg.headers['From']
+            hdrs['To'] = msg.headers['To']
+            hdrs['Call-ID'] = msg.headers['Call-ID']
+            hdrs['CSeq'] = msg.headers['CSeq'].replace('INVITE', 'ACK')
+            hdrs['Via'] = msg.headers['Via']
+            self.dialog.send(method='ACK', headers=hdrs)
+            self.future.set_result(msg)
         elif 100 <= msg.status_code < 200:
             pass
         else:

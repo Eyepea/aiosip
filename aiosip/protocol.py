@@ -1,7 +1,10 @@
 import asyncio
+import logging
 
 from . import message
-from .log import protocol_logger
+
+
+LOG = logging.getLogger(__name__)
 
 CLIENT = 0
 SERVER = 1
@@ -16,7 +19,7 @@ class UDP(asyncio.DatagramProtocol):
 
     def send_message(self, msg, addr):
         msg.headers['Via'] %= {'protocol': UDP.__name__.upper()}
-        protocol_logger.debug('Sent via UDP: "%s"', msg)
+        LOG.debug('Sent via UDP: "%s"', msg)
         self.transport.sendto(str(msg).encode(), addr)
 
     def connection_made(self, transport):
@@ -25,7 +28,7 @@ class UDP(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, addr):
         msg = data.decode()
-        protocol_logger.debug('Received via UDP: "%s"', msg)
+        LOG.debug('Received via UDP: "%s"', msg)
         msg_obj = message.Message.from_raw_message(msg)
 
         self.app.dispatch(self, msg_obj, addr)
@@ -46,23 +49,26 @@ class TCP(asyncio.Protocol):
 
     def send_message(self, msg):
         msg.headers['Via'] %= {'protocol': TCP.__name__.upper()}
-        protocol_logger.debug('Sent via TCP: "%s"', msg)
+        LOG.debug('Sent via TCP: "%s"', msg)
         self.transport.write(str(msg).encode())
 
     def connection_made(self, transport):
         peer = transport.get_extra_info('peername')
-        protocol_logger.debug('TCP connection made to %s', peer)
+        LOG.debug('TCP connection made to %s', peer)
         self.transport = transport
         self.ready.set_result(self.transport)
 
     def data_received(self, data):
+
+        if data == b'\r\n\r\n':
+            return
         msg = data.decode()
-        protocol_logger.debug('Received via TCP: "%s"', msg)
+        LOG.debug('Received via TCP: "%s"', msg)
         msg_obj = message.Message.from_raw_message(msg)
         self.app.dispatch(self, msg_obj, '')
 
     def connection_lost(self, error):
-        protocol_logger.debug('Connection lost from {}'.format(
+        LOG.debug('Connection lost from {}'.format(
             self.transport.get_extra_info('peername')))
         super().connection_lost(error)
         self.app._connection_lost(self)
