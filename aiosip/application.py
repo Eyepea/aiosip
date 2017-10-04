@@ -2,6 +2,7 @@
 Same structure as aiohttp.web.Application
 """
 import asyncio
+import logging
 
 __all__ = ['Application']
 
@@ -11,22 +12,21 @@ from .dialog import Dialog
 from .dialplan import Dialplan
 from .protocol import UDP, CLIENT, SERVER
 from .connections import Connection
-from .message import Request, Response
+from .message import Request
 
-from .log import application_logger
+
+LOG = logging.getLogger(__name__)
 
 
 class Application(MutableMapping):
 
     def __init__(self, *,
-                 logger=application_logger,
                  loop=None,
                  dialog_factory=Dialog
                  ):
         if loop is None:
             loop = asyncio.get_event_loop()
 
-        self.logger = logger
         self._finish_callbacks = []
         self.loop = loop
         self._state = {}
@@ -120,7 +120,7 @@ class Application(MutableMapping):
 
         connection = self._connections.get((local_addr, remote_addr, type(protocol)))
         if not connection:
-            self.logger.debug('New connection for %s', remote_addr)
+            LOG.debug('New connection for %s', remote_addr)
             connection = Connection(local_addr, remote_addr, protocol, self)
             self._connections[local_addr, remote_addr, type(protocol)] = connection
 
@@ -128,7 +128,7 @@ class Application(MutableMapping):
         if not dialog:
             route = self.dialplan.resolve(msg)
             if route:
-                self.logger.debug('New dialog for %s, ID: "%s"', remote_addr, key)
+                LOG.debug('New dialog for %s, ID: "%s"', remote_addr, key)
                 dialog = connection.create_dialog(
                     from_uri=msg.headers['To'],
                     to_uri=msg.headers['From'],

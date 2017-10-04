@@ -44,22 +44,16 @@ class Message:
 
         if 'From' in self.headers:
             self.from_details = Contact.from_header(self.headers['From'])
-        elif self.from_details:
-            self.headers['From'] = str(self.from_details)
-        else:
+        elif not self.from_details:
             raise ValueError('From header or from_details is required')
 
         if 'To' in self.headers:
             self.to_details = Contact.from_header(self.headers['To'])
-        elif self.to_details:
-            self.headers['To'] = str(self.to_details)
-        else:
+        elif not self.to_details:
             raise ValueError('To header or to_details is required')
 
         if 'Contact' in self.headers:
             self.contact_details = Contact.from_header(self.headers['Contact'])
-        elif self.contact_details:
-            self.headers['Contact'] = str(self.contact_details)
 
         if content_type:
             self.headers['Content-Type'] = content_type
@@ -95,6 +89,10 @@ class Message:
         return self._method
 
     def __str__(self):
+        self.headers['From'] = str(self.from_details)
+        self.headers['To'] = str(self.to_details)
+        self.headers['Contact'] = str(self.contact_details)
+
         msg = []
         for k, v in sorted(self.headers.items()):
             if isinstance(v, (list, tuple)):
@@ -157,7 +155,7 @@ class Message:
                                payload=payload,
                                cseq=int(cseq))
             else:
-                    raise ValueError('Not a SIP message')
+                raise ValueError('Not a SIP message')
 
 
 class Request(Message):
@@ -225,6 +223,12 @@ class Response(Message):
 
     @classmethod
     def from_request(cls, request, status_code, status_message, payload=None, headers=None, content_type=None):
+
+        if not headers:
+            headers = CIMultiDict()
+
+        if 'Via' not in headers:
+            headers['Via'] = request.headers['Via']
 
         return Response(
             status_code=status_code,
