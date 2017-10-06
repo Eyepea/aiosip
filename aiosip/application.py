@@ -1,6 +1,7 @@
 """
 Same structure as aiohttp.web.Application
 """
+import sys
 import asyncio
 import logging
 
@@ -8,6 +9,7 @@ __all__ = ['Application']
 
 from collections import MutableMapping
 
+from . import __version__
 from .dialog import Dialog
 from .dialplan import Dialplan
 from .protocol import UDP, CLIENT, SERVER
@@ -21,18 +23,26 @@ LOG = logging.getLogger(__name__)
 class Application(MutableMapping):
 
     def __init__(self, *,
+                 user_agent=None,
                  loop=None,
-                 dialog_factory=Dialog
+                 dialog_factory=Dialog,
+                 middleware=()
                  ):
         if loop is None:
             loop = asyncio.get_event_loop()
 
+        if user_agent is None:
+            user_agent = 'Python/{0[0]}.{0[1]}.{0[2]} aiosip/{1}'.format(sys.version_info, __version__)
+
         self._finish_callbacks = []
-        self.loop = loop
         self._state = {}
         self._connections = {}
+        self._middleware = middleware
+
         self.dialplan = Dialplan()
         self.dialog_factory = dialog_factory
+        self.user_agent = user_agent
+        self.loop = loop
 
     @property
     def dialogs(self):
@@ -126,18 +136,15 @@ class Application(MutableMapping):
 
         dialog = connection.dialogs.get(key)
         if not dialog:
-            route = self.dialplan.resolve(msg)
-            if route:
-                LOG.debug('New dialog for %s, ID: "%s"', remote_addr, key)
-                dialog = connection.create_dialog(
-                    from_uri=msg.headers['To'],
-                    to_uri=msg.headers['From'],
-                    password=None,
-                    call_id=msg.headers['Call-ID'],
-                )
-                asyncio.ensure_future(route(dialog, msg))
-        else:
-            dialog.receive_message(msg)
+            LOG.debug('New dialog for %s, ID: "%s"', remote_addr, key)
+            dialog = connection.create_dialog(
+                from_uri=msg.headers['To'],
+                to_uri=msg.headers['From'],
+                password=None,
+                call_id=msg.headers['Call-ID'],
+                router=self.dialplan.resolve(msg)
+            )
+        asyncio.ensure_future(dialog.receive_message(msg))
 
     @asyncio.coroutine
     def finish(self):

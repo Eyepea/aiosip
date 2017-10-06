@@ -1,3 +1,4 @@
+import sys
 import asyncio
 import logging
 
@@ -5,9 +6,11 @@ from collections import defaultdict
 from multidict import CIMultiDict
 from aiosip.auth import Auth
 
+from . import utils, __version__
 from .contact import Contact
 from .message import Request, Response
 from .exceptions import RegisterFailed, InviteFailed
+from .dialplan import Router
 
 from functools import partial
 
@@ -16,16 +19,14 @@ LOG = logging.getLogger(__name__)
 
 
 class Transaction:
-    def __init__(self, dialog, password=None, attempts=3, future=None,
-                 *, loop=None):
+    def __init__(self, dialog, attempts=3, future=None, *, loop=None):
         self.dialog = dialog
         self.loop = loop or asyncio.get_event_loop()
         self.future = future or asyncio.Future(loop=self.loop)
         self.attempts = attempts
 
     def feed_message(self, msg, original_msg=None):
-        authenticate = msg.headers.get('WWW-Authenticate')
-        if msg.status_code == 401 and authenticate:
+        if msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
             if self.dialog.password is None:
                 raise ValueError('Password required for authentication')
 
@@ -58,7 +59,7 @@ class Transaction:
 
             del(original_msg.headers['CSeq'])
             original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
-                authenticate=authenticate,
+                authenticate=msg.headers['WWW-Authenticate'],
                 method=msg.method,
                 uri=msg.to_details['uri'].short_uri(),
                 username=username,
@@ -111,6 +112,7 @@ class Dialog:
                  *,
                  contact_uri=None,
                  password=None,
+                 router=Router(),
                  cseq=0):
 
         self.app = app
@@ -123,24 +125,20 @@ class Dialog:
         self.connection = connection
         self.password = password
         self.cseq = cseq
+        self.router = router
         self._msgs = defaultdict(dict)
         self._pending = defaultdict(dict)
         self.callbacks = defaultdict(list)
         self._tasks = list()
+        self._nonce = None
 
     def register_callback(self, method, callback, *args, **kwargs):
-        self.callbacks[method.upper()].append({'callable': callback,
-                                               'args' : args,
-                                               'kwargs': kwargs})
+        self.router[method.lower()] = partial(callback, *args, **kwargs)
 
-    def is_callback_registered(self, method, callback):
-        return len(list(filter(lambda e: e['callable']==callback, self.callbacks[method])))
+    def unregister_callback(self, method):
+        del self.router[method.lower()]
 
-    def unregister_callback(self, method, callback):
-        for x in filter(lambda e: e['callable']==callback, self.callbacks[method]):
-            self.callbacks[method].remove(x)
-
-    def receive_message(self, msg):
+    async def receive_message(self, msg):
         if isinstance(msg, Response):
             if msg.cseq in self._msgs[msg.method]:
                 original_msg = self._msgs[msg.method].get(msg.cseq)
@@ -148,27 +146,50 @@ class Dialog:
                 transaction.feed_message(msg, original_msg=original_msg)
             else:
                 raise ValueError('This Response SIP message doesn\'t have Request: "%s"' % msg)
-        else:
-            if msg.method != 'ACK':
-                hdrs = CIMultiDict()
-                hdrs['Via'] = msg.headers['Via']
-                hdrs['CSeq'] = msg.headers['CSeq']
-                hdrs['Call-ID'] = msg.headers['Call-ID']
 
+        elif msg.method in self.router:
+            route = self.router[msg.method]
+            for middleware_factory in reversed(self.app._middleware):
+                route = await middleware_factory(route)
+
+            try:
+                await route(self, msg)
+            except Exception as e:
+                LOG.exception(e)
                 response = Response.from_request(
                     request=msg,
-                    status_code=200,
-                    status_message='OK',
-                    headers=hdrs
+                    status_code=500,
+                    status_message='Server Internal Error'
                 )
                 self.reply(response)
+        else:
+            response = Response.from_request(
+                request=msg,
+                status_code=501,
+                status_message='Not Implemented',
+            )
+            self.reply(response)
 
-            for callback_info in self.callbacks[msg.method.upper()]:
-                if asyncio.iscoroutinefunction(callback_info['callable']):
-                    fut = callback_info['callable'](*((self, msg,) + callback_info['args']), **callback_info['kwargs'])
-                    self._tasks.append(asyncio.ensure_future(fut))
-                else:
-                    self.app.loop.call_soon(partial(callback_info['callable'], *((self, msg,) + callback_info['args']), **callback_info['kwargs']))
+    def unauthorized(self, msg):
+        self._nonce = utils.gen_str(10)
+        hdrs = CIMultiDict()
+        hdrs['WWW-Authenticate'] = str(Auth(nonce=self._nonce, algorithm='md5', realm='sip'))
+        response = Response.from_request(
+            request=msg,
+            status_code=401,
+            status_message='Unauthorized',
+            headers=hdrs
+        )
+        self.reply(response)
+
+    def validate_auth(self, msg, password):
+        if msg.auth and msg.auth.validate(password, self._nonce):
+            self._nonce = None
+            return True
+        elif msg.method == 'CANCEL':
+            return True
+        else:
+            return False
 
     def send(self, method, to_details=None, from_details=None, contact_details=None, headers=None, content_type=None, payload=None, future=None):
 
@@ -176,6 +197,8 @@ class Dialog:
             headers = CIMultiDict()
         if 'Call-ID' not in headers:
             headers['Call-ID'] = self.call_id
+        if 'User-Agent' not in headers:
+            headers['User-Agent'] = self.app.user_agent
 
         if from_details:
             from_details = Contact(from_details)
@@ -195,8 +218,7 @@ class Dialog:
                       future=future)
 
         if method != 'ACK':
-            transaction = Transaction(self, password=self.password,
-                                      future=msg.future, loop=self.app.loop)
+            transaction = Transaction(self, future=msg.future, loop=self.app.loop)
 
             self._msgs[method][self.cseq] = msg
             self._pending[method][self.cseq] = transaction
@@ -209,6 +231,10 @@ class Dialog:
     def reply(self, response):
         response.to_details.add_tag()
         response.headers['Call-ID'] = self.call_id
+
+        if 'User-Agent' not in response.headers:
+            response.headers['User-Agent'] = self.app.user_agent
+
         self.connection.send_message(response)
 
     def close(self):
