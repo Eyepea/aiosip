@@ -15,6 +15,9 @@ class UnreliableTransaction:
         self.future = future or asyncio.Future(loop=self.loop)
         self.attempts = attempts
 
+        if original_msg.method in ('REGISTER', 'INVITE', 'SUBSCRIBE'):
+            future.add_done_callback(self._done_callback)
+
     def feed_message(self, msg):
         if msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
             if self.dialog.password is None:
@@ -41,7 +44,7 @@ class UnreliableTransaction:
                 hdrs['From'] = msg.headers['From']
                 hdrs['To'] = msg.headers['To']
                 hdrs['Call-ID'] = msg.headers['Call-ID']
-                hdrs['CSeq'] = msg.headers['CSeq'].replace('INVITE', 'ACK')
+                hdrs['CSeq'] = msg.headers['CSeq'].replace(self.orignial_msg.method, 'ACK')
                 hdrs['Via'] = msg.headers['Via']
                 self.dialog.send(method='ACK', headers=hdrs)
             else:
@@ -87,6 +90,19 @@ class UnreliableTransaction:
             pass
         else:
             self.future.set_result(msg)
+
+    def cancel(self):
+        hdrs = CIMultiDict()
+        hdrs['From'] = self.original_msg.headers['From']
+        hdrs['To'] = self.original_msg.headers['To']
+        hdrs['Call-ID'] = self.original_msg.headers['Call-ID']
+        hdrs['CSeq'] = self.original_msg.headers['CSeq'].replace(self.orignial_msg.method, 'CANCEL')
+        hdrs['Via'] = self.original_msg.headers['Via']
+        self.send_message(method='CANCEL', headers=hdrs)
+
+    def _done_callback(self, result):
+        if result.cancelled():
+            self.cancel()
 
     def __await__(self):
         return self.future

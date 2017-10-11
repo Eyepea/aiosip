@@ -137,16 +137,19 @@ class Dialog:
                       future=future)
 
         if method != 'ACK':
-            transaction = UnreliableTransaction(self, original_msg=msg,
-                                                future=msg.future,
-                                                loop=self.app.loop)
-
-            self._transactions[method][self.cseq] = transaction
-            self.connection.send_message(msg)
-            return transaction.future
+            return self.start_transaction(method, msg, future=future)
 
         self.connection.send_message(msg)
         return None
+
+    def start_transaction(self, method, msg, *, future=None):
+        transaction = UnreliableTransaction(self, original_msg=msg,
+                                            future=msg.future,
+                                            loop=self.app.loop)
+
+        self._transactions[method][self.cseq] = transaction
+        self.connection.send_message(msg)
+        return transaction.future
 
     def reply(self, response):
         response.to_details.add_tag()
