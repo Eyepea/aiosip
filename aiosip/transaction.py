@@ -15,9 +15,6 @@ class UnreliableTransaction:
         self.future = future or asyncio.Future(loop=self.loop)
         self.attempts = attempts
 
-        if original_msg.method in ('REGISTER', 'INVITE', 'SUBSCRIBE'):
-            future.add_done_callback(self._done_callback)
-
     def feed_message(self, msg):
         if msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
             if self.dialog.password is None:
@@ -90,6 +87,13 @@ class UnreliableTransaction:
             pass
         else:
             self.future.set_result(msg)
+
+    def start(self):
+        if self.original_msg.method in ('REGISTER', 'INVITE', 'SUBSCRIBE'):
+            self.future.add_done_callback(self._done_callback)
+
+        self.dialog.connection.send_message(self.original_msg)
+        return self.future
 
     def cancel(self):
         hdrs = CIMultiDict()

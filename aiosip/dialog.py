@@ -1,4 +1,3 @@
-import sys
 import asyncio
 import logging
 
@@ -148,8 +147,7 @@ class Dialog:
                                             loop=self.app.loop)
 
         self._transactions[method][self.cseq] = transaction
-        self.connection.send_message(msg)
-        return transaction.future
+        return transaction.start()
 
     def reply(self, response):
         response.to_details.add_tag()
