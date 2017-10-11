@@ -41,8 +41,7 @@ class Dialog:
         self.password = password
         self.cseq = cseq
         self.router = router
-        self._msgs = defaultdict(dict)
-        self._pending = defaultdict(dict)
+        self._transactions = defaultdict(dict)
         self.callbacks = defaultdict(list)
         self._tasks = list()
         self._nonce = None
@@ -55,11 +54,10 @@ class Dialog:
 
     async def receive_message(self, msg):
         if isinstance(msg, Response):
-            if msg.cseq in self._msgs[msg.method]:
-                original_msg = self._msgs[msg.method].get(msg.cseq)
-                transaction = self._pending[msg.method].get(msg.cseq)
-                transaction.feed_message(msg, original_msg=original_msg)
-            else:
+            try:
+                transaction = self._transactions[msg.method][msg.cseq]
+                transaction.feed_message(msg)
+            except KeyError:
                 raise ValueError('This Response SIP message doesn\'t have Request: "%s"' % msg)
 
         elif msg.method in self.router:
@@ -139,11 +137,11 @@ class Dialog:
                       future=future)
 
         if method != 'ACK':
-            transaction = UnreliableTransaction(self, future=msg.future,
+            transaction = UnreliableTransaction(self, original_msg=msg,
+                                                future=msg.future,
                                                 loop=self.app.loop)
 
-            self._msgs[method][self.cseq] = msg
-            self._pending[method][self.cseq] = transaction
+            self._transactions[method][self.cseq] = transaction
             self.connection.send_message(msg)
             return transaction.future
 
@@ -161,7 +159,7 @@ class Dialog:
 
     def close(self):
         self.connection._stop_dialog(self.call_id)
-        for transactions in self._pending.values():
+        for transactions in self._transactions.values():
             for transaction in transactions.values():
                 # transaction.cancel()
                 if not transaction.future.done():
@@ -170,7 +168,7 @@ class Dialog:
             task.cancel()
 
     def _connection_lost(self):
-        for transactions in self._pending.values():
+        for transactions in self._transactions.values():
             for transaction in transactions.values():
                 if not transaction.future.done():
                     transaction.future.set_exception(ConnectionError)

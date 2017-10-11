@@ -7,13 +7,15 @@ from .exceptions import RegisterFailed, InviteFailed
 
 
 class UnreliableTransaction:
-    def __init__(self, dialog, attempts=3, future=None, *, loop=None):
+    def __init__(self, dialog, original_msg=None, attempts=3,
+                 future=None, *, loop=None):
         self.dialog = dialog
+        self.original_msg = original_msg
         self.loop = loop or asyncio.get_event_loop()
         self.future = future or asyncio.Future(loop=self.loop)
         self.attempts = attempts
 
-    def feed_message(self, msg, original_msg=None):
+    def feed_message(self, msg):
         if msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
             if self.dialog.password is None:
                 raise ValueError('Password required for authentication')
@@ -45,34 +47,34 @@ class UnreliableTransaction:
             else:
                 username = msg.from_details['uri']['user']
 
-            del(original_msg.headers['CSeq'])
-            original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
+            del(self.original_msg.headers['CSeq'])
+            self.original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
                 authenticate=msg.headers['WWW-Authenticate'],
                 method=msg.method,
                 uri=msg.to_details['uri'].short_uri(),
                 username=username,
                 password=self.dialog.password))
-            self.dialog.send(original_msg.method,
+            self.dialog.send(self.original_msg.method,
                              to_details=msg.to_details,
-                             headers=original_msg.headers,
-                             payload=original_msg.payload,
+                             headers=self.original_msg.headers,
+                             payload=self.original_msg.payload,
                              future=self.future)
 
         # for proxy authentication
         elif msg.status_code == 407:
-            original_msg = self._msgs[msg.method].pop(msg.cseq)
-            del(original_msg.headers['CSeq'])
-            original_msg.headers['Proxy-Authorization'] = str(Auth.from_authenticate_header(
+            self.original_msg = self.original_msg.pop(msg.cseq)
+            del(self.original_msg.headers['CSeq'])
+            self.original_msg.headers['Proxy-Authorization'] = str(Auth.from_authenticate_header(
                 authenticate=msg.headers['Proxy-Authenticate'],
                 method=msg.method,
                 uri=str(self.to_details),
                 username=self.to_details['uri']['user'],
                 password=self.dialog.password))
             self.dialog.send_message(msg.method,
-                                     headers=original_msg.headers,
-                                     payload=original_msg.payload,
+                                     headers=self.original_msg.headers,
+                                     payload=self.original_msg.payload,
                                      future=self.futrue)
-        elif original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
+        elif self.original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
             hdrs = CIMultiDict()
             hdrs['From'] = msg.headers['From']
             hdrs['To'] = msg.headers['To']
