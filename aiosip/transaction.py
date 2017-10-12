@@ -1,9 +1,21 @@
 import asyncio
+import functools
 
 from multidict import CIMultiDict
 from aiosip.auth import Auth
 
 from .exceptions import RegisterFailed, InviteFailed
+
+
+@asyncio.coroutine
+def sip_timer(sender, *, timeout=0.5):
+    max_timeout = timeout * 64
+    while timeout <= max_timeout:
+        sender()
+        yield from asyncio.sleep(timeout)
+        timeout *= 2
+
+    raise asyncio.TimeoutError('SIP timer expired')
 
 
 class UnreliableTransaction:
@@ -13,9 +25,14 @@ class UnreliableTransaction:
         self.original_msg = original_msg
         self.loop = loop or asyncio.get_event_loop()
         self.future = future or asyncio.Future(loop=self.loop)
+        self.retransmission = None
         self.attempts = attempts
 
     def feed_message(self, msg):
+        if self.retransmission:
+            self.retransmission.cancel()
+            self.retransmission = None
+
         if msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
             if self.dialog.password is None:
                 raise ValueError('Password required for authentication')
@@ -92,10 +109,16 @@ class UnreliableTransaction:
         if self.original_msg.method in ('REGISTER', 'INVITE', 'SUBSCRIBE'):
             self.future.add_done_callback(self._done_callback)
 
-        self.dialog.connection.send_message(self.original_msg)
+        send_message = functools.partial(self.dialog.connection.send_message,
+                                         self.original_msg)
+        self.retransmission = asyncio.ensure_future(sip_timer(send_message))
         return self.future
 
     def cancel(self):
+        if self.retransmission:
+            self.retransmission.cancel()
+            self.retransmission = None
+
         hdrs = CIMultiDict()
         hdrs['From'] = self.original_msg.headers['From']
         hdrs['To'] = self.original_msg.headers['To']
