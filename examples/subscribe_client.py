@@ -17,13 +17,18 @@ sip_config = {
 
 
 @asyncio.coroutine
-def show_notify(dialog, message):
-    print('NOTIFY:', message.payload)
+def show_notify(dialog, request):
+    print('NOTIFY:', request.payload)
+    response = aiosip.Response.from_request(
+        request=request,
+        status_code=200,
+        status_message='OK'
+    )
+    dialog.reply(response)
 
 
 @asyncio.coroutine
 def option(dialog, request):
-
     response = aiosip.Response.from_request(
         request=request,
         status_code=200,
