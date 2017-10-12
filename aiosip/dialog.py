@@ -60,9 +60,8 @@ class Dialog:
                 raise ValueError('This Response SIP message doesn\'t have Request: "%s"' % msg)
 
         elif msg.method in self.router:
-
             try:
-                t = self._call_route(msg)
+                t = asyncio.ensure_future(self._call_route(msg))
                 self._tasks.append(t)
                 await t
             except Exception as e:
