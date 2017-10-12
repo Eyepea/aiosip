@@ -148,12 +148,11 @@ class Dialog:
                 raise ValueError('This Response SIP message doesn\'t have Request: "%s"' % msg)
 
         elif msg.method in self.router:
-            route = self.router[msg.method]
-            for middleware_factory in reversed(self.app._middleware):
-                route = await middleware_factory(route)
 
             try:
-                await route(self, msg)
+                t = self._call_route(msg)
+                self._tasks.append(t)
+                await t
             except Exception as e:
                 LOG.exception(e)
                 response = Response.from_request(
@@ -169,6 +168,13 @@ class Dialog:
                 status_message='Not Implemented',
             )
             self.reply(response)
+
+    async def _call_route(self, msg):
+        route = self.router[msg.method]
+        for middleware_factory in reversed(self.app._middleware):
+            route = await middleware_factory(route)
+
+        await route(self, msg)
 
     def unauthorized(self, msg):
         self._nonce = utils.gen_str(10)
