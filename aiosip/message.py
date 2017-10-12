@@ -1,15 +1,14 @@
 import logging
 import asyncio
 import re
-import sys
 import uuid
 
+from pyquery import PyQuery
 from multidict import CIMultiDict
 
 from . import utils
 from .contact import Contact
-import aiosip
-from pyquery import PyQuery
+from .auth import Auth
 
 FIRST_LINE_PATTERN = {
     'request': {
@@ -31,7 +30,8 @@ class Message:
                  payload=None,
                  from_details=None,
                  to_details=None,
-                 contact_details=None):
+                 contact_details=None,
+                 ):
 
         self.from_details = from_details
         self.to_details = to_details
@@ -69,9 +69,7 @@ class Message:
             self.headers['Max-Forwards'] = '70'
         if 'Call-ID' not in self.headers:
             self.headers['Call-ID'] = uuid.uuid4()
-        if 'User-Agent' not in self.headers:
-            self.headers['User-Agent'] = 'Python/{0[0]}.{0[1]}.{0[2]} aiosip/{1}'.format(
-                sys.version_info, aiosip.__version__)
+
         if 'Content-Length' not in self.headers:
             payload_len = len(self.payload.encode()) if self.payload else 0
             self.headers['Content-Length'] = payload_len
@@ -150,6 +148,7 @@ class Message:
             if m:
                 d = m.groupdict()
                 cseq, _ = headers['CSeq'].split()
+
                 return Request(method=d['method'],
                                headers=headers,
                                payload=payload,
@@ -168,7 +167,8 @@ class Request(Message):
                  headers=None,
                  content_type=None,
                  payload=None,
-                 future=None):
+                 future=None,
+                 ):
 
         super().__init__(
             content_type=content_type,
@@ -182,6 +182,11 @@ class Request(Message):
         self._method = method
         self._cseq = cseq
         self.future = future or asyncio.Future()
+
+        if 'Authorization' in headers:
+            self.auth = Auth.from_authorization_header(headers['Authorization'], self._method)
+        else:
+            self.auth = None
 
         if 'CSeq' not in self.headers:
             self.headers['CSeq'] = '%s %s' % (cseq, self.method)

@@ -2,6 +2,9 @@ import logging
 import asyncio
 import uuid
 
+
+from .dialplan import Router
+
 LOG = logging.getLogger(__name__)
 
 
@@ -32,7 +35,7 @@ class Connection:
             dialog._connection_lost()
         self.dialogs = {}
 
-    def create_dialog(self, from_uri, to_uri, contact_uri=None, password=None, call_id=None, cseq=0):
+    def create_dialog(self, from_uri, to_uri, contact_uri=None, password=None, call_id=None, cseq=0, router=Router()):
 
         if self.closed:
             raise ConnectionError
@@ -48,7 +51,8 @@ class Connection:
             connection=self,
             contact_uri=contact_uri,
             password=password,
-            cseq=cseq
+            cseq=cseq,
+            router=router
         )
 
         self.dialogs[call_id] = dialog
