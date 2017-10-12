@@ -24,26 +24,28 @@ def notify(dialog):
 
 
 @asyncio.coroutine
-def handler(dialog, message):
-    if message.method == 'REGISTER':
-        response = aiosip.Response.from_request(
-            request=message,
-            status_code=200,
-            status_message='OK',
-        )
+def on_register(dialog, message):
+    response = aiosip.Response.from_request(
+        request=message,
+        status_code=200,
+        status_message='OK',
+    )
 
-        dialog.reply(response)
-        print('Registration succesfull')
-    elif message.method == 'SUBSCRIBE':
-        response = aiosip.Response.from_request(
-            request=message,
-            status_code=200,
-            status_message='OK',
-        )
+    dialog.reply(response)
+    print('Registration successful')
 
-        dialog.reply(response)
-        print('Subscription started!')
-        yield from notify(dialog)
+
+@asyncio.coroutine
+def on_subscribe(dialog, message):
+    response = aiosip.Response.from_request(
+        request=message,
+        status_code=200,
+        status_message='OK',
+    )
+
+    dialog.reply(response)
+    print('Subscription started!')
+    yield from notify(dialog)
 
 
 def main_tcp(app):
@@ -86,7 +88,8 @@ def main_udp(app):
 def main():
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
-    app.dialplan.add_user('subscriber', handler)
+    app.dialplan.add_user('subscriber', {'REGISTER': on_register,
+                                         'SUBSCRIBE': on_subscribe})
 
     if len(sys.argv) > 1 and sys.argv[1] == 'tcp':
         main_tcp(app)

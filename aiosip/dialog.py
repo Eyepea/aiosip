@@ -1,105 +1,19 @@
-import sys
 import asyncio
 import logging
 
 from collections import defaultdict
 from multidict import CIMultiDict
-from aiosip.auth import Auth
 
 from . import utils, __version__
 from .contact import Contact
 from .message import Request, Response
-from .exceptions import RegisterFailed, InviteFailed
 from .dialplan import Router
+from .transaction import UnreliableTransaction
 
 from functools import partial
 
 
 LOG = logging.getLogger(__name__)
-
-
-class Transaction:
-    def __init__(self, dialog, attempts=3, future=None, *, loop=None):
-        self.dialog = dialog
-        self.loop = loop or asyncio.get_event_loop()
-        self.future = future or asyncio.Future(loop=self.loop)
-        self.attempts = attempts
-
-    def feed_message(self, msg, original_msg=None):
-        if msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
-            if self.dialog.password is None:
-                raise ValueError('Password required for authentication')
-
-            if msg.method.upper() == 'REGISTER':
-                self.attempts -= 1
-                if self.attempts < 1:
-                    self.future.set_exception(
-                        RegisterFailed('Too many unauthorized attempts!')
-                    )
-                    return
-                username = msg.to_details['uri']['user']
-            elif msg.method.upper() == 'INVITE':
-                self.attempts -= 1
-                if self.attempts < 1:
-                    self.future.set_exception(
-                        InviteFailed('Too many unauthorized attempts!')
-                    )
-                    return
-                username = msg.from_details['uri']['user']
-
-                hdrs = CIMultiDict()
-                hdrs['From'] = msg.headers['From']
-                hdrs['To'] = msg.headers['To']
-                hdrs['Call-ID'] = msg.headers['Call-ID']
-                hdrs['CSeq'] = msg.headers['CSeq'].replace('INVITE', 'ACK')
-                hdrs['Via'] = msg.headers['Via']
-                self.dialog.send(method='ACK', headers=hdrs)
-            else:
-                username = msg.from_details['uri']['user']
-
-            del(original_msg.headers['CSeq'])
-            original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
-                authenticate=msg.headers['WWW-Authenticate'],
-                method=msg.method,
-                uri=msg.to_details['uri'].short_uri(),
-                username=username,
-                password=self.dialog.password))
-            self.dialog.send(original_msg.method,
-                             to_details=msg.to_details,
-                             headers=original_msg.headers,
-                             payload=original_msg.payload,
-                             future=self.future)
-
-        # for proxy authentication
-        elif msg.status_code == 407:
-            original_msg = self._msgs[msg.method].pop(msg.cseq)
-            del(original_msg.headers['CSeq'])
-            original_msg.headers['Proxy-Authorization'] = str(Auth.from_authenticate_header(
-                authenticate=msg.headers['Proxy-Authenticate'],
-                method=msg.method,
-                uri=str(self.to_details),
-                username=self.to_details['uri']['user'],
-                password=self.password))
-            self.dialog.send_message(msg.method,
-                                     headers=original_msg.headers,
-                                     payload=original_msg.payload,
-                                     future=self.futrue)
-        elif original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
-            hdrs = CIMultiDict()
-            hdrs['From'] = msg.headers['From']
-            hdrs['To'] = msg.headers['To']
-            hdrs['Call-ID'] = msg.headers['Call-ID']
-            hdrs['CSeq'] = msg.headers['CSeq'].replace('INVITE', 'ACK')
-            hdrs['Via'] = msg.headers['Via']
-            self.dialog.send(method='ACK', headers=hdrs)
-            self.future.set_result(msg)
-        elif 100 <= msg.status_code < 200:
-            pass
-        else:
-            self.future.set_result(msg)
-
-    def __await__(self):
-        return self.future
 
 
 class Dialog:
@@ -126,8 +40,7 @@ class Dialog:
         self.password = password
         self.cseq = cseq
         self.router = router
-        self._msgs = defaultdict(dict)
-        self._pending = defaultdict(dict)
+        self._transactions = defaultdict(dict)
         self.callbacks = defaultdict(list)
         self._tasks = list()
         self._nonce = None
@@ -140,17 +53,15 @@ class Dialog:
 
     async def receive_message(self, msg):
         if isinstance(msg, Response):
-            if msg.cseq in self._msgs[msg.method]:
-                original_msg = self._msgs[msg.method].get(msg.cseq)
-                transaction = self._pending[msg.method].get(msg.cseq)
-                transaction.feed_message(msg, original_msg=original_msg)
-            else:
+            try:
+                transaction = self._transactions[msg.method][msg.cseq]
+                transaction.feed_message(msg)
+            except KeyError:
                 raise ValueError('This Response SIP message doesn\'t have Request: "%s"' % msg)
 
         elif msg.method in self.router:
-
             try:
-                t = self._call_route(msg)
+                t = asyncio.ensure_future(self._call_route(msg))
                 self._tasks.append(t)
                 await t
             except Exception as e:
@@ -224,15 +135,18 @@ class Dialog:
                       future=future)
 
         if method != 'ACK':
-            transaction = Transaction(self, future=msg.future, loop=self.app.loop)
-
-            self._msgs[method][self.cseq] = msg
-            self._pending[method][self.cseq] = transaction
-            self.connection.send_message(msg)
-            return transaction.future
+            return self.start_transaction(method, msg, future=future)
 
         self.connection.send_message(msg)
         return None
+
+    def start_transaction(self, method, msg, *, future=None):
+        transaction = UnreliableTransaction(self, original_msg=msg,
+                                            future=msg.future,
+                                            loop=self.app.loop)
+
+        self._transactions[method][self.cseq] = transaction
+        return transaction.start()
 
     def reply(self, response):
         response.to_details.add_tag()
@@ -245,7 +159,7 @@ class Dialog:
 
     def close(self):
         self.connection._stop_dialog(self.call_id)
-        for transactions in self._pending.values():
+        for transactions in self._transactions.values():
             for transaction in transactions.values():
                 # transaction.cancel()
                 if not transaction.future.done():
@@ -254,7 +168,7 @@ class Dialog:
             task.cancel()
 
     def _connection_lost(self):
-        for transactions in self._pending.values():
+        for transactions in self._transactions.values():
             for transaction in transactions.values():
                 if not transaction.future.done():
                     transaction.future.set_exception(ConnectionError)
