@@ -2,7 +2,14 @@
 aiosip
 ======
 
-.. image:: https://badge.fury.io/py/aiosip.png
+.. image:: https://travis-ci.org/Eyepea/aiosip.svg?branch=master
+    :target:  https://travis-ci.org/Eyepea/aiosip
+    :align: right
+
+.. image:: https://codecov.io/gh/Eyepea/aiosip/branch/master/graph/badge.svg
+    :target: https://codecov.io/gh/Eyepea/aiosip
+
+.. image:: https://badge.fury.io/py/aiosip.svg
     :target: http://badge.fury.io/py/aiosip
 
 
