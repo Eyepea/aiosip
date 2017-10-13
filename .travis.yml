@@ -1,16 +1,33 @@
-# Config file for automatic testing at travis-ci.org
+sudo: required
+services:
+  - docker
 
 language: python
 
 python:
-  - "3.4"
-  - "3.3"
-  - "2.7"
-  - "2.6"
-  - "pypy"
+  # - 3.5.2
+  - 3.5
+  - 3.6
 
-# command to install dependencies, e.g. pip install -r requirements.txt --use-mirrors
-install: pip install -r requirements.txt
+matrix:
+  allow_failures:
+    - python: '3.6-dev'
+    - python: 'nightly'
 
-# command to run tests, e.g. python setup.py test
-script: python setup.py test
+cache:
+  directories:
+  - $HOME/.cache/pip
+
+before_cache:
+  - rm -f $HOME/.cache/pip/log/debug.log
+
+install:
+  - pip install --upgrade pip wheel
+  - pip install --upgrade setuptools
+  - pip install pytest pytest-cov codecov uvloop -e .
+
+script:
+  - py.test --cov=aiosip --cov-report=term --cov-report=html --cov-append --loop pyloop,uvloop tests
+
+after_success:
+  - codecov
