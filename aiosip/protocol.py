@@ -68,7 +68,6 @@ class TCP(asyncio.Protocol):
         self.app.dispatch(self, msg_obj, '')
 
     def connection_lost(self, error):
-        LOG.debug('Connection lost from {}'.format(
-            self.transport.get_extra_info('peername')))
+        LOG.debug('Connection lost from %s: %s', self.transport.get_extra_info('peername'), error)
         super().connection_lost(error)
         self.app._connection_lost(self)

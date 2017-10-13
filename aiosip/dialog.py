@@ -9,6 +9,7 @@ from .contact import Contact
 from .message import Request, Response
 from .dialplan import Router
 from .transaction import UnreliableTransaction
+from .auth import Auth
 
 from functools import partial
 
