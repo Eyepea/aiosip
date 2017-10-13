@@ -58,7 +58,7 @@ class UnreliableTransaction:
                 hdrs['From'] = msg.headers['From']
                 hdrs['To'] = msg.headers['To']
                 hdrs['Call-ID'] = msg.headers['Call-ID']
-                hdrs['CSeq'] = msg.headers['CSeq'].replace(self.orignial_msg.method, 'ACK')
+                hdrs['CSeq'] = msg.headers['CSeq'].replace(self.original_msg.method, 'ACK')
                 hdrs['Via'] = msg.headers['Via']
                 self.dialog.send(method='ACK', headers=hdrs)
             else:
@@ -123,9 +123,9 @@ class UnreliableTransaction:
         hdrs['From'] = self.original_msg.headers['From']
         hdrs['To'] = self.original_msg.headers['To']
         hdrs['Call-ID'] = self.original_msg.headers['Call-ID']
-        hdrs['CSeq'] = self.original_msg.headers['CSeq'].replace(self.orignial_msg.method, 'CANCEL')
+        hdrs['CSeq'] = self.original_msg.headers['CSeq'].replace(self.original_msg.method, 'CANCEL')
         hdrs['Via'] = self.original_msg.headers['Via']
-        self.send_message(method='CANCEL', headers=hdrs)
+        self.dialog.send(method='CANCEL', headers=hdrs)
 
     def _done_callback(self, result):
         if result.cancelled():
