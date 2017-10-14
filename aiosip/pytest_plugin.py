@@ -12,6 +12,12 @@ except ImportError:  # pragma: no cover
     uvloop = None
 
 
+try:
+    import tokio
+except ImportError:  # pragma: no cover
+    tokio = None
+
+
 LOOP_FACTORIES = []
 LOOP_FACTORY_IDS = []
 
@@ -78,6 +84,9 @@ def pytest_configure(config):
 
     if uvloop is not None:  # pragma: no cover
         factories['uvloop'] = uvloop.new_event_loop
+
+    if tokio is not None:  # pragma: no cover
+        factories['tokio'] = tokio.new_event_loop
 
     LOOP_FACTORIES.clear()
     LOOP_FACTORY_IDS.clear()
