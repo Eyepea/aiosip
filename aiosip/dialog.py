@@ -65,6 +65,8 @@ class Dialog:
                 t = asyncio.ensure_future(self._call_route(msg))
                 self._tasks.append(t)
                 await t
+            except asyncio.CancelledError:
+                pass
             except Exception as e:
                 LOG.exception(e)
                 response = Response.from_request(
@@ -168,6 +170,9 @@ class Dialog:
         for task in self._tasks:
             task.cancel()
 
+        # TODO: this needs to be refactored
+        self.connection.protocol.transport.close()
+
     def _connection_lost(self):
         for transactions in self._transactions.values():
             for transaction in transactions.values():
@@ -203,3 +208,9 @@ class Dialog:
                                     headers=headers,
                                     payload=sdp)
         return send_msg_future
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()

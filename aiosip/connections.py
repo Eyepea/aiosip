@@ -19,7 +19,6 @@ class Connection:
         self.closed = False
 
     def send_message(self, msg):
-
         if self.closed:
             raise ConnectionError
 
@@ -36,7 +35,6 @@ class Connection:
         self.dialogs = {}
 
     def create_dialog(self, from_uri, to_uri, contact_uri=None, password=None, call_id=None, cseq=0, router=Router()):
-
         if self.closed:
             raise ConnectionError
 

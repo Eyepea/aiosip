@@ -34,10 +34,10 @@ def pytest_addoption(parser):
         help='enable event loop debug mode')
 
 
-
 @contextlib.contextmanager
 def loop_context(loop_factory=asyncio.new_event_loop, fast=False):
     """A contextmanager that creates an event_loop, for test purposes.
+
     Handles the creation and cleanup of a test loop.
     """
     loop = setup_test_loop(loop_factory)
@@ -46,10 +46,10 @@ def loop_context(loop_factory=asyncio.new_event_loop, fast=False):
 
 
 def setup_test_loop(loop_factory=asyncio.new_event_loop):
-    """Create and return an asyncio.BaseEventLoop
-    instance.
-    The caller should also call teardown_test_loop,
-    once they are done with the loop.
+    """Create and return an asyncio.BaseEventLoop instance.
+
+    The caller should also call teardown_test_loop, once they are done
+    with the loop.
     """
     loop = loop_factory()
     asyncio.set_event_loop(None)
@@ -62,9 +62,7 @@ def setup_test_loop(loop_factory=asyncio.new_event_loop):
 
 
 def teardown_test_loop(loop, fast=False):
-    """Teardown and cleanup an event_loop created
-    by setup_test_loop.
-    """
+    """Teardown and cleanup an event_loop created by setup_test_loop."""
     closed = loop.is_closed()
     if not closed:
         loop.call_soon(loop.stop)
@@ -108,17 +106,13 @@ def pytest_configure(config):
 
 
 def pytest_pycollect_makeitem(collector, name, obj):
-    """
-    Fix pytest collecting for coroutines.
-    """
+    """Fix pytest collecting for coroutines."""
     if collector.funcnamefilter(name) and asyncio.iscoroutinefunction(obj):
         return list(collector._genfunctions(name, obj))
 
 
 def pytest_pyfunc_call(pyfuncitem):
-    """
-    Run coroutines in an event loop instead of a normal function call.
-    """
+    """Run coroutines in an event loop instead of a normal function call."""
     if asyncio.iscoroutinefunction(pyfuncitem.function):
         testargs = {arg: pyfuncitem.funcargs[arg]
                     for arg in pyfuncitem._fixtureinfo.argnames}

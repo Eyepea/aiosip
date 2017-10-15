@@ -15,9 +15,9 @@ class TestServer:
         self._loop = loop
 
     @asyncio.coroutine
-    def start_server(self, *, loop=None):
+    def start_server(self, protocol, *, loop=None):
         self.handler = self.app.run(
-            protocol=aiosip.UDP,
+            protocol=protocol,
             local_addr=(self.sip_config['server_host'], self.sip_config['server_port'])
         )
         return self.handler
@@ -38,14 +38,23 @@ class TestServer:
         }
 
 
+@pytest.fixture(params=['udp', 'tcp'])
+def protocol(request):
+    if request.param == 'udp':
+        return aiosip.UDP
+    elif request.param == 'tcp':
+        return aiosip.TCP
+    pytest.fail('Test requested unknown protocol: {}'.format(request.param))
+
+
 @pytest.yield_fixture
-def test_server(loop):
+def test_server(protocol, loop):
     servers = []
 
     @asyncio.coroutine
     def go(handler, **kwargs):
         server = TestServer(handler)
-        yield from server.start_server(loop=loop, **kwargs)
+        yield from server.start_server(protocol, loop=loop, **kwargs)
         servers.append(server)
         return server
 
