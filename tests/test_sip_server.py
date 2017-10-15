@@ -4,7 +4,7 @@ import aiosip
 
 
 @asyncio.coroutine
-def test_subscribe(test_server, loop):
+def test_subscribe(test_server, protocol, loop):
     callback_complete = loop.create_future()
 
     @asyncio.coroutine
@@ -22,6 +22,7 @@ def test_subscribe(test_server, loop):
     server = yield from test_server(app)
 
     connection = yield from app.connect(
+        protocol=protocol,
         local_addr=(server.sip_config['client_host'], server.sip_config['client_port']),
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
