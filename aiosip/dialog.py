@@ -167,6 +167,7 @@ class Dialog:
                     transaction.future.set_exception(ConnectionAbortedError)
         for task in self._tasks:
             task.cancel()
+        self.connection.protocol.transport.close()
 
     def _connection_lost(self):
         for transactions in self._transactions.values():
@@ -203,3 +204,9 @@ class Dialog:
                                     headers=headers,
                                     payload=sdp)
         return send_msg_future
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()

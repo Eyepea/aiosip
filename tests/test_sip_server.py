@@ -9,13 +9,14 @@ def test_subscribe(test_server, protocol, loop):
 
     @asyncio.coroutine
     def handler(dialog, request):
-        response = aiosip.Response.from_request(
-            request=request,
-            status_code=200,
-            status_message='OK'
-        )
-        dialog.reply(response)
-        callback_complete.set_result(request)
+        with dialog:
+            response = aiosip.Response.from_request(
+                request=request,
+                status_code=200,
+                status_message='OK'
+            )
+            dialog.reply(response)
+            callback_complete.set_result(request)
 
     app = aiosip.Application(loop=loop)
     app.dialplan.add_user('pytest', {'SUBSCRIBE': handler})
@@ -32,13 +33,16 @@ def test_subscribe(test_server, protocol, loop):
         to_uri='sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port']),
     )
 
-    future = subscribe_dialog.send(
-        method='SUBSCRIBE',
-        headers={'Expires': '1800',
-                 'Event': 'dialog',
-                 'Accept': 'application/dialog-info+xml'}
-    )
+    with subscribe_dialog:
+        yield from asyncio.wait_for(
+            subscribe_dialog.send(
+                method='SUBSCRIBE',
+                headers={'Expires': '1800',
+                         'Event': 'dialog',
+                         'Accept': 'application/dialog-info+xml'}
+            ),
+            timeout=1
+        )
 
-    yield from asyncio.wait_for(future, timeout=1)
     request = yield from asyncio.wait_for(callback_complete, timeout=1)
     assert request.method == 'SUBSCRIBE'
