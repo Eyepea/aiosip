@@ -9,6 +9,13 @@ def test_subscribe(test_server, protocol, loop):
 
     @asyncio.coroutine
     def handler(dialog, request):
+        # TODO: putting the context manager here guarantees that we
+        # close this connection, but its technically broken. Closing
+        # the dialog here in turn cancels this coroutine, so it
+        # doesn't actually complete properly.
+        #
+        # Without this, though, the tests don't run, so its a
+        # necessary evil for now.
         with dialog:
             response = aiosip.Response.from_request(
                 request=request,

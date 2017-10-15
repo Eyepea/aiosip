@@ -65,6 +65,8 @@ class Dialog:
                 t = asyncio.ensure_future(self._call_route(msg))
                 self._tasks.append(t)
                 await t
+            except asyncio.CancelledError:
+                pass
             except Exception as e:
                 LOG.exception(e)
                 response = Response.from_request(
@@ -167,6 +169,8 @@ class Dialog:
                     transaction.future.set_exception(ConnectionAbortedError)
         for task in self._tasks:
             task.cancel()
+
+        # TODO: this needs to be refactored
         self.connection.protocol.transport.close()
 
     def _connection_lost(self):
