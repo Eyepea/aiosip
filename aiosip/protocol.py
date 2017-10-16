@@ -31,7 +31,7 @@ class UDP(asyncio.DatagramProtocol):
         LOG.debug('Received via UDP: "%s"', msg)
         msg_obj = message.Message.from_raw_message(msg)
 
-        self.app.dispatch(self, msg_obj, addr)
+        asyncio.ensure_future(self.app.dispatch(self, msg_obj, addr))
 
     # def error_received(self, exc):
     #     print('Error received:', exc)
@@ -47,7 +47,7 @@ class TCP(asyncio.Protocol):
         self.transport = None
         self.ready = asyncio.Future()
 
-    def send_message(self, msg):
+    def send_message(self, msg, addr=None):
         msg.headers['Via'] %= {'protocol': TCP.__name__.upper()}
         LOG.debug('Sent via TCP: "%s"', msg)
         self.transport.write(str(msg).encode())
@@ -65,9 +65,9 @@ class TCP(asyncio.Protocol):
         msg = data.decode()
         LOG.debug('Received via TCP: "%s"', msg)
         msg_obj = message.Message.from_raw_message(msg)
-        self.app.dispatch(self, msg_obj, '')
+        asyncio.ensure_future(self.app.dispatch(self, msg_obj, None))
 
     def connection_lost(self, error):
         LOG.debug('Connection lost from %s: %s', self.transport.get_extra_info('peername'), error)
         super().connection_lost(error)
-        self.app._connection_lost(self)
+        # self.app._connection_lost(self)

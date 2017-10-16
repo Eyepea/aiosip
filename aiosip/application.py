@@ -12,9 +12,8 @@ from collections import MutableMapping
 from . import __version__
 from .dialog import Dialog
 from .dialplan import Dialplan
-from .protocol import UDP, CLIENT, SERVER
-from .connections import Connection
-from .message import Request
+from .protocol import UDP, TCP
+from .connections import UDPConnector, TCPConnector
 
 
 LOG = logging.getLogger(__name__)
@@ -36,7 +35,8 @@ class Application(MutableMapping):
 
         self._finish_callbacks = []
         self._state = {}
-        self._connections = {}
+        self._connectors = {UDP: UDPConnector(self, loop=loop),
+                            TCP: TCPConnector(self, loop=loop)}
         self._middleware = middleware
 
         self.dialplan = Dialplan()
@@ -45,106 +45,52 @@ class Application(MutableMapping):
         self.loop = loop
 
     @property
-    def dialogs(self):
-        for connection in self._connections:
-            yield from connection.dialogs.values()
+    def peers(self):
+        for connector in self._connectors.values():
+            yield from connector._peers.values()
 
     @property
-    def connections(self):
-        yield from self._connections.values()
+    def dialogs(self):
+        for peer in self.peers:
+            yield from peer._dialogs.values()
 
-    @asyncio.coroutine
-    def connect(self, local_addr, remote_addr, protocol=UDP):
-        connection = yield from self._create_connection(local_addr, remote_addr, protocol=protocol, mode=CLIENT)
-        return connection
+    async def connect(self, local_addr, remote_addr, protocol=UDP):
+        connector = self._connectors[protocol]
+        peer = await connector.create_peer(local_addr, remote_addr)
+        return peer
 
-    @asyncio.coroutine
-    def run(self, local_addr, protocol=UDP):
-        server = yield from self._create_connection(local_addr, protocol=protocol, mode=SERVER)
+    async def run(self, local_addr, protocol=UDP):
+        connector = self._connectors[protocol]
+        server = await connector.create_server(local_addr)
         return server
 
-    @asyncio.coroutine
-    def _create_connection(self, local_addr=None, remote_addr=None, protocol=UDP, mode=CLIENT):
+    async def dispatch(self, protocol, msg, addr):
+        connector = self._connectors[type(protocol)]
+        peer = await connector.get_peer(protocol, addr)
 
-        if (protocol, local_addr, remote_addr) in self._connections:
-            return self._connections[protocol, local_addr, remote_addr]
-
-        if issubclass(protocol, asyncio.DatagramProtocol):
-            trans, proto = yield from self.loop.create_datagram_endpoint(
-                self.make_handler(protocol),
-                local_addr=local_addr,
-                remote_addr=remote_addr,
-            )
-
-            connection = Connection(local_addr, remote_addr, proto, self)
-            self._connections[local_addr, remote_addr, protocol] = connection
-            yield from proto.ready
-            return connection
-
-        elif issubclass(protocol, asyncio.Protocol) and mode is CLIENT:
-            trans, proto = yield from self.loop.create_connection(
-                self.make_handler(protocol),
-                local_addr=local_addr,
-                host=remote_addr[0],
-                port=remote_addr[1])
-
-            connection = Connection(local_addr, remote_addr, proto, self)
-            self._connections[local_addr, remote_addr, protocol] = connection
-            yield from proto.ready
-            return connection
-
-        elif issubclass(protocol, asyncio.Protocol) and mode is SERVER:
-            server = yield from self.loop.create_server(
-                self.make_handler(protocol),
-                host=local_addr[0],
-                port=local_addr[1])
-            return server
-
-        else:
-            raise ValueError('Impossible to connect with this protocol class')
-
-    def _connection_lost(self, protocol):
-        local_addr = protocol.transport.get_extra_info('sockname')
-        remote_addr = protocol.transport.get_extra_info('peername')
-
-        try:
-            connection = self._connections[local_addr, remote_addr, type(protocol)]
-        except KeyError:
-            pass
-        else:
-            connection._connection_lost()
-
-    def dispatch(self, protocol, msg, addr):
-        # key = (protocol, msg.from_details.from_repr(), msg.to_details['uri'].short_uri(), msg.headers['Call-ID'])
         key = msg.headers['Call-ID']
-        local_addr = protocol.transport.get_extra_info('sockname')
-        remote_addr = protocol.transport.get_extra_info('peername')
-
-        if not remote_addr:
-            if isinstance(msg, Request):
-                remote_addr = (msg.from_details['uri']['host'],
-                               msg.from_details['uri']['port'])
-            else:
-                remote_addr = (msg.to_details['uri']['host'],
-                               msg.to_details['uri']['port'])
-
-        connection = self._connections.get((local_addr, remote_addr, type(protocol)))
-        if not connection:
-            LOG.debug('New connection for %s', remote_addr)
-            connection = Connection(local_addr, remote_addr, protocol, self)
-            self._connections[local_addr, remote_addr, type(protocol)] = connection
-
-        dialog = connection.dialogs.get(key)
+        dialog = peer._dialogs.get(key)
         if not dialog:
-            LOG.debug('New dialog for %s, ID: "%s"', remote_addr, key)
-            dialog = connection.create_dialog(
+            LOG.debug('New dialog for %s, ID: "%s"', peer.peer_addr, key)
+            dialog = peer.create_dialog(
                 from_uri=msg.headers['To'],
                 to_uri=msg.headers['From'],
                 password=None,
                 call_id=msg.headers['Call-ID'],
                 router=self.dialplan.resolve(msg)
             )
-        asyncio.ensure_future(dialog.receive_message(msg))
+        await dialog.receive_message(msg)
+
+    # def _connection_lost(self, protocol):
+    #     local_addr = protocol.transport.get_extra_info('sockname')
+    #     remote_addr = protocol.transport.get_extra_info('peername')
+
+    #     try:
+    #         connection = self._connections[local_addr, remote_addr, type(protocol)]
+    #     except KeyError:
+    #         pass
+    #     else:
+    #         connection._connection_lost()
 
     @asyncio.coroutine
     def finish(self):
@@ -168,8 +114,8 @@ class Application(MutableMapping):
         self._finish_callbacks.insert(0, (func, args, kwargs))
 
     def close(self):
-        for connection in self._connections.values():
-            connection.close()
+        for connector in self._connectors.values():
+            connector.close()
 
     # def __repr__(self):
     #     return "<Application>"
@@ -192,6 +138,3 @@ class Application(MutableMapping):
 
     def __iter__(self):
         return iter(self._state)
-
-    def make_handler(self, protocol):
-        return lambda: protocol(app=self, loop=self.loop)
