@@ -52,7 +52,7 @@ def setup_test_loop(loop_factory=asyncio.new_event_loop):
     with the loop.
     """
     loop = loop_factory()
-    asyncio.set_event_loop(None)
+    asyncio.set_event_loop(loop)
     if sys.platform != "win32":
         policy = asyncio.get_event_loop_policy()
         watcher = asyncio.SafeChildWatcher()
