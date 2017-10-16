@@ -11,4 +11,5 @@ Contributors
 ------------
 
 * Nicolas Stein (Niketufjo)
-* Simon Gomizelj (vodik)
+* Simon Gomizelj (Vodik)
+* Quentin Dawans (Ovv)
