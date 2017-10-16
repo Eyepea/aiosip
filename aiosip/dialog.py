@@ -162,6 +162,10 @@ class Dialog:
 
     def close(self):
         self.connection._stop_dialog(self.call_id)
+        self._close()
+
+    def _close(self):
+        LOG.debug('Closing dialog: %s', self.call_id)
         for transactions in self._transactions.values():
             for transaction in transactions.values():
                 # transaction.cancel()
@@ -169,9 +173,6 @@ class Dialog:
                     transaction.future.set_exception(ConnectionAbortedError)
         for task in self._tasks:
             task.cancel()
-
-        # TODO: this needs to be refactored
-        self.connection.protocol.transport.close()
 
     def _connection_lost(self):
         for transactions in self._transactions.values():

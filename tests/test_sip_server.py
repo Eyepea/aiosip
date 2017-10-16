@@ -9,25 +9,19 @@ def test_subscribe(test_server, protocol, loop):
 
     @asyncio.coroutine
     def handler(dialog, request):
-        # TODO: putting the context manager here guarantees that we
-        # close this connection, but its technically broken. Closing
-        # the dialog here in turn cancels this coroutine, so it
-        # doesn't actually complete properly.
-        #
-        # Without this, though, the tests don't run, so its a
-        # necessary evil for now.
-        with dialog:
-            response = aiosip.Response.from_request(
-                request=request,
-                status_code=200,
-                status_message='OK'
-            )
-            dialog.reply(response)
-            callback_complete.set_result(request)
+        rep = aiosip.Response.from_request(
+            request=request,
+            status_code=200,
+            status_message='OK'
+        )
+        dialog.reply(rep)
+        callback_complete.set_result(request)
 
     app = aiosip.Application(loop=loop)
-    app.dialplan.add_user('pytest', {'SUBSCRIBE': handler})
-    server = yield from test_server(app)
+
+    server_app = aiosip.Application(loop=loop)
+    server_app.dialplan.add_user('pytest', {'SUBSCRIBE': handler})
+    server = yield from test_server(server_app)
 
     connection = yield from app.connect(
         protocol=protocol,
@@ -40,16 +34,17 @@ def test_subscribe(test_server, protocol, loop):
         to_uri='sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port']),
     )
 
-    with subscribe_dialog:
-        yield from asyncio.wait_for(
-            subscribe_dialog.send(
-                method='SUBSCRIBE',
-                headers={'Expires': '1800',
-                         'Event': 'dialog',
-                         'Accept': 'application/dialog-info+xml'}
-            ),
-            timeout=1
-        )
+    response = yield from subscribe_dialog.send(
+                    method='SUBSCRIBE',
+                    headers={'Expires': '1800',
+                             'Event': 'dialog',
+                             'Accept': 'application/dialog-info+xml'}
+                    )
 
-    request = yield from asyncio.wait_for(callback_complete, timeout=1)
-    assert request.method == 'SUBSCRIBE'
+    received_request = yield from callback_complete
+
+    assert response.status_code == 200
+    assert response.status_message == 'OK'
+    assert received_request.method == 'SUBSCRIBE'
+
+    server_app.close()

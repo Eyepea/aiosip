@@ -61,3 +61,14 @@ class Connection:
             del self.dialogs[call_id]
         except KeyError:
             pass
+
+    def close(self):
+        LOG.debug('Closing connection for %s', self.remote_addr)
+        self.closed = True
+        self.protocol.transport.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()

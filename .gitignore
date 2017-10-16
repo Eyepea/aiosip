@@ -50,3 +50,4 @@ docs/_build
 # Virtual envs
 venv
 pyvenv
+.cache/

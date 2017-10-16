@@ -167,8 +167,12 @@ class Application(MutableMapping):
     def register_on_finish(self, func, *args, **kwargs):
         self._finish_callbacks.insert(0, (func, args, kwargs))
 
-    def __repr__(self):
-        return "<Application>"
+    def close(self):
+        for connection in self._connections.values():
+            connection.close()
+
+    # def __repr__(self):
+    #     return "<Application>"
 
     # MutableMapping API
     def __eq__(self, other):
