@@ -20,6 +20,9 @@ class Peer:
         self._dialogs = {}
 
     def close(self):
+        for dialog in self._dialogs.values():
+            dialog._close()
+
         if self._protocol is not None:
             LOG.debug('Closing connection for %s', self.peer_addr)
             self._connector._release(self._key, self._protocol, should_close=True)
@@ -96,9 +99,25 @@ class BaseConnector:
     async def get_peer(self, protocol, peer_addr):
         return await self._dispatch(protocol, peer_addr)
 
+    def connection_lost(self, protocol):
+        key = self._make_key(protocol)
+        peer = self._peers.pop(key, None)
+        if peer:
+            peer.close()
+
     def close(self):
-        for proto in self._protocols.values():
-            proto.transport.close()
+        for peer in self._peers.values():
+            peer.close()
+
+    def _release(self, key, protocol, should_close=False):
+        _protocol = self._protocols.pop(key, None)
+        if _protocol:
+            assert _protocol == protocol
+            if should_close:
+                protocol.transport.close()
+
+    async def _make_key(self, protocol):
+        raise NotImplementedError()
 
     async def _create_server(self, local_addr):
         raise NotImplementedError()
@@ -111,6 +130,11 @@ class BaseConnector:
 
 
 class TCPConnector(BaseConnector):
+    def _make_key(self, protocol):
+        local_addr = protocol.transport.get_extra_info('sockname')
+        peer_addr = protocol.transport.get_extra_info('peername')
+        return local_addr, peer_addr
+
     def _create_server(self, local_addr):
         return self._loop.create_server(
             lambda: TCP(app=self._app, loop=self._loop),
@@ -130,21 +154,22 @@ class TCPConnector(BaseConnector):
             return proto
 
     async def _dispatch(self, protocol, addr):
-        local_addr = protocol.transport.get_extra_info('sockname')
-        peer_addr = protocol.transport.get_extra_info('peername')
-
-        key = local_addr, peer_addr
+        key = self._make_key(protocol)
         if key not in self._protocols:
             self._protocols[key] = protocol
 
         try:
             return self._peers[key]
         except KeyError:
+            peer_addr = key[1]
             LOG.debug('New connection for %s', peer_addr)
             return self._create_peer(peer_addr, protocol, key)
 
 
 class UDPConnector(BaseConnector):
+    def _make_key(self, protocol):
+        return protocol.transport.get_extra_info('sockname')
+
     def _create_server(self, local_addr):
         return self._create_connection(local_addr, None)
 

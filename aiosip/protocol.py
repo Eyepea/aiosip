@@ -59,7 +59,6 @@ class TCP(asyncio.Protocol):
         self.ready.set_result(self.transport)
 
     def data_received(self, data):
-
         if data == b'\r\n\r\n':
             return
         msg = data.decode()
@@ -67,7 +66,10 @@ class TCP(asyncio.Protocol):
         msg_obj = message.Message.from_raw_message(msg)
         asyncio.ensure_future(self.app.dispatch(self, msg_obj, None))
 
+    # def error_received(self, exc):
+    #     print('Error received:', exc)
+
     def connection_lost(self, error):
         LOG.debug('Connection lost from %s: %s', self.transport.get_extra_info('peername'), error)
         super().connection_lost(error)
-        # self.app._connection_lost(self)
+        self.app._connection_lost(self)

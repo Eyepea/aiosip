@@ -81,16 +81,9 @@ class Application(MutableMapping):
             )
         await dialog.receive_message(msg)
 
-    # def _connection_lost(self, protocol):
-    #     local_addr = protocol.transport.get_extra_info('sockname')
-    #     remote_addr = protocol.transport.get_extra_info('peername')
-
-    #     try:
-    #         connection = self._connections[local_addr, remote_addr, type(protocol)]
-    #     except KeyError:
-    #         pass
-    #     else:
-    #         connection._connection_lost()
+    def _connection_lost(self, protocol):
+        connector = self._connectors[type(protocol)]
+        connector.connection_lost(protocol)
 
     @asyncio.coroutine
     def finish(self):
