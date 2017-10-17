@@ -36,6 +36,10 @@ class Message:
         self.from_details = from_details
         self.to_details = to_details
         self.contact_details = contact_details
+        self.content_type = content_type
+
+        self._payload = payload
+        self._raw_payload = None
 
         if headers:
             self.headers = headers
@@ -55,24 +59,24 @@ class Message:
         if 'Contact' in self.headers:
             self.contact_details = Contact.from_header(self.headers['Contact'])
 
-        if content_type:
-            self.headers['Content-Type'] = content_type
-
-        self.payload = payload
-
-        # Build the message
         if 'Via' not in self.headers:
             self.headers['Via'] = 'SIP/2.0/%(protocol)s '+'%s:%s;branch=%s' % (self.contact_details['uri']['host'],
                                                                                self.contact_details['uri']['port'],
                                                                                utils.gen_branch(10))
-        if 'Max-Forwards' not in self.headers:
-            self.headers['Max-Forwards'] = '70'
-        if 'Call-ID' not in self.headers:
-            self.headers['Call-ID'] = uuid.uuid4()
 
-        if 'Content-Length' not in self.headers:
-            payload_len = len(self.payload.encode()) if self.payload else 0
-            self.headers['Content-Length'] = payload_len
+    @property
+    def payload(self):
+        if self._payload:
+            return self._payload
+        elif self._raw_payload:
+            self._payload = self._raw_payload.decode()
+            return self._payload
+        else:
+            return None
+
+    @payload.setter
+    def payload(self, payload):
+        self._payload = payload
 
     @property
     def cseq(self):
@@ -90,6 +94,18 @@ class Message:
         self.headers['From'] = str(self.from_details)
         self.headers['To'] = str(self.to_details)
         self.headers['Contact'] = str(self.contact_details)
+
+        if 'Content-Length' not in self.headers:
+            payload_len = len(self.payload.encode()) if self.payload else 0
+            self.headers['Content-Length'] = payload_len
+
+        if 'Max-Forwards' not in self.headers:
+            self.headers['Max-Forwards'] = '70'
+        if 'Call-ID' not in self.headers:
+            self.headers['Call-ID'] = uuid.uuid4()
+
+        if self.content_type:
+            self.headers['Content-Type'] = self.content_type
 
         msg = []
         for k, v in sorted(self.headers.items()):
@@ -111,49 +127,42 @@ class Message:
         return PyQuery(self.payload).remove_namespaces()
 
     @classmethod
-    def from_raw_message(cls, raw_message):
-        lines = raw_message.split(utils.EOL)
-        first_line = lines.pop(0)
+    def from_raw_headers(cls, raw_headers):
         headers = CIMultiDict()
-        payload = ''
-        reading_headers = True
-        for line in lines:
-            if reading_headers:
-                if ': ' in line:
-                    k, v = line.split(': ', 1)
-                    if k in headers:
-                        o = headers.setdefault(k, [])
-                        if not isinstance(o, list):
-                            o = [o]
-                        o.append(v)
-                        headers[k] = o
-                    else:
-                        headers[k] = v
-                else:  # Finish to parse headers
-                    reading_headers = False
-            else: # @todo: use content length to read payload
-                payload += line  # reading payload
-        if payload == '':
-            payload = None
+        decoded_headers = raw_headers.decode().split(utils.EOL)
+        for line in decoded_headers[1:]:
+            try:
+                k, v = line.split(': ', 1)
+            except ValueError:
+                LOG.warning(decoded_headers)
+                LOG.warning(line)
+                raise
+            if k in headers:
+                o = headers.setdefault(k, [])
+                if not isinstance(o, list):
+                    o = [o]
+                o.append(v)
+                headers[k] = o
+            else:
+                headers[k] = v
 
-        m = FIRST_LINE_PATTERN['response']['regex'].match(first_line)
+        m = FIRST_LINE_PATTERN['response']['regex'].match(decoded_headers[0])
         if m:
             d = m.groupdict()
             return Response(status_code=int(d['status_code']),
                             status_message=d['status_message'],
-                            headers=headers,
-                            payload=payload)
+                            headers=headers)
         else:
-            m = FIRST_LINE_PATTERN['request']['regex'].match(first_line)
+            m = FIRST_LINE_PATTERN['request']['regex'].match(decoded_headers[0])
             if m:
                 d = m.groupdict()
                 cseq, _ = headers['CSeq'].split()
 
                 return Request(method=d['method'],
                                headers=headers,
-                               payload=payload,
                                cseq=int(cseq))
             else:
+                LOG.debug(decoded_headers)
                 raise ValueError('Not a SIP message')
 
 
