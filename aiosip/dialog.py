@@ -138,12 +138,12 @@ class Dialog:
                       future=future)
 
         if method != 'ACK':
-            return self.start_transaction(method, msg, future=future)
+            return self.start_transaction(method, msg)
 
         self.connection.send_message(msg)
         return None
 
-    def start_transaction(self, method, msg, *, future=None):
+    def start_transaction(self, method, msg):
         transaction = UnreliableTransaction(self, original_msg=msg,
                                             future=msg.future,
                                             loop=self.app.loop)
@@ -209,6 +209,7 @@ class Dialog:
                                     headers=headers,
                                     payload=sdp)
         return send_msg_future
+
 
     def __enter__(self):
         return self

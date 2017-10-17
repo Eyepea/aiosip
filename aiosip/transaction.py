@@ -1,5 +1,5 @@
 import asyncio
-import functools
+import logging
 
 from multidict import CIMultiDict
 from aiosip.auth import Auth
@@ -7,15 +7,18 @@ from aiosip.auth import Auth
 from .exceptions import RegisterFailed, InviteFailed
 
 
+LOG = logging.getLogger(__name__)
+
+
 @asyncio.coroutine
-def sip_timer(sender, *, timeout=0.5):
+def sip_timer(sender, msg, *, timeout=0.5):
     max_timeout = timeout * 64
     while timeout <= max_timeout:
-        sender()
+        sender(msg)
         yield from asyncio.sleep(timeout)
         timeout *= 2
 
-    raise asyncio.TimeoutError('SIP timer expired')
+    raise asyncio.TimeoutError('SIP timer expired for %s, %s, %s', msg.cseq, msg.method, msg.headers['Call-ID'])
 
 
 class UnreliableTransaction:
@@ -109,9 +112,7 @@ class UnreliableTransaction:
         if self.original_msg.method in ('REGISTER', 'INVITE', 'SUBSCRIBE'):
             self.future.add_done_callback(self._done_callback)
 
-        send_message = functools.partial(self.dialog.connection.send_message,
-                                         self.original_msg)
-        self.retransmission = asyncio.ensure_future(sip_timer(send_message))
+        self.retransmission = asyncio.ensure_future(sip_timer(self.dialog.connection.send_message, self.original_msg))
         return self.future
 
     def cancel(self):
