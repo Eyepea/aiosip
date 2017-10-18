@@ -112,7 +112,7 @@ class UnreliableTransaction:
         if self.original_msg.method in ('REGISTER', 'INVITE', 'SUBSCRIBE'):
             self.future.add_done_callback(self._done_callback)
 
-        self.retransmission = asyncio.ensure_future(sip_timer(self.dialog.connection.send_message, self.original_msg))
+        self.retransmission = asyncio.ensure_future(sip_timer(self.dialog.peer.send_message, self.original_msg))
         return self.future
 
     def cancel(self):

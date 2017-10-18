@@ -23,7 +23,7 @@ class Dialog:
                  from_uri,
                  to_uri,
                  call_id,
-                 connection,
+                 peer,
                  *,
                  contact_uri=None,
                  password=None,
@@ -37,7 +37,7 @@ class Dialog:
         self.to_details = Contact.from_header(to_uri)
         self.contact_details = Contact.from_header(contact_uri or from_uri)
         self.call_id = call_id
-        self.connection = connection
+        self.peer = peer
         self.password = password
         self.cseq = cseq
         self.router = router
@@ -140,7 +140,7 @@ class Dialog:
         if method != 'ACK':
             return self.start_transaction(method, msg)
 
-        self.connection.send_message(msg)
+        self.peer.send_message(msg)
         return None
 
     def start_transaction(self, method, msg):
@@ -158,10 +158,10 @@ class Dialog:
         if 'User-Agent' not in response.headers:
             response.headers['User-Agent'] = self.app.user_agent
 
-        self.connection.send_message(response)
+        self.peer.send_message(response)
 
     def close(self):
-        self.connection._stop_dialog(self.call_id)
+        self.peer._stop_dialog(self.call_id)
         self._close()
 
     def _close(self):
