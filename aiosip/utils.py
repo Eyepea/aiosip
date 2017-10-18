@@ -2,6 +2,7 @@ import random
 import string
 
 EOL = '\r\n'
+BYTES_EOL = b'\r\n'
 
 
 def gen_str(length=10, letters=string.ascii_letters+string.digits):

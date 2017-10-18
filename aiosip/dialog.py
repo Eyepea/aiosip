@@ -111,7 +111,7 @@ class Dialog:
         else:
             return False
 
-    def send(self, method, to_details=None, from_details=None, contact_details=None, headers=None, content_type=None, payload=None, future=None):
+    def send(self, method, to_details=None, from_details=None, contact_details=None, headers=None, payload=None, future=None):
 
         if headers is None:
             headers = CIMultiDict()
@@ -133,7 +133,6 @@ class Dialog:
                       contact_details=contact_details if contact_details else self.contact_details,
                       cseq=self.cseq,
                       headers=headers,
-                      content_type=content_type,
                       payload=payload,
                       future=future)
 

@@ -20,7 +20,7 @@ class UDP(asyncio.DatagramProtocol):
     def send_message(self, msg, addr):
         msg.headers['Via'] %= {'protocol': UDP.__name__.upper()}
         LOG.debug('Sent via UDP: "%s"', msg)
-        self.transport.sendto(str(msg).encode(), addr)
+        self.transport.sendto(msg.encode(), addr)
 
     def connection_made(self, transport):
         self.transport = transport
@@ -52,7 +52,7 @@ class TCP(asyncio.Protocol):
     def send_message(self, msg):
         msg.headers['Via'] %= {'protocol': TCP.__name__.upper()}
         LOG.debug('Sent via TCP: "%s"', msg)
-        self.transport.write(str(msg).encode())
+        self.transport.write(msg.encode())
 
     def connection_made(self, transport):
         peer = transport.get_extra_info('peername')
