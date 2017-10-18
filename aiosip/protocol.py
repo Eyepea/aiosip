@@ -31,7 +31,6 @@ class UDP(asyncio.DatagramProtocol):
         msg = message.Message.from_raw_headers(headers)
         msg._raw_payload = data
         LOG.debug('Received via UDP: "%s"', msg)
-        self.app.dispatch(self, msg, addr)
         asyncio.ensure_future(self.app.dispatch(self, msg, addr))
 
     # def error_received(self, exc):
