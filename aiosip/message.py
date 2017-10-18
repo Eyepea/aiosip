@@ -202,7 +202,6 @@ class Message:
             if m:
                 d = m.groupdict()
                 cseq, _ = headers['CSeq'].split()
-
                 return Request(method=d['method'],
                                headers=headers,
                                cseq=int(cseq),
@@ -296,11 +295,21 @@ class Response(Message):
             contact_details=contact_details
         )
 
-        self._method = method
-        self._cseq = cseq
+        if cseq:
+            self._cseq = cseq
+        elif 'CSeq' not in self.headers:
+            raise ValueError('"CSeq" header or cseq is required')
+
+        if method:
+            self._method = method
+        elif 'CSeq' not in self.headers:
+            raise ValueError('"CSeq" header or method is required')
+
+        if 'CSeq' not in self.headers:
+            self.headers['CSeq'] = '%s %s' % (self._cseq, self._method)
+
         self._status_code = status_code
         self._status_message = status_message
-        self.headers['CSeq'] = '%s %s' % (self._cseq, self._method)
 
         if not first_line:
             self._first_line = FIRST_LINE_PATTERN['response']['str'].format(

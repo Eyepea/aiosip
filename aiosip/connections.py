@@ -19,6 +19,7 @@ class Connection:
         self.closed = False
 
     def send_message(self, msg):
+
         if self.closed:
             raise ConnectionError
 

@@ -30,7 +30,7 @@ class TestServer:
     def sip_config(self):
         return {
             'client_host': self.host,
-            'client_port': 7000,
+            'client_port': 7001,
             'server_host': self.host,
             'server_port': 6000,
             'user': 'pytest',
