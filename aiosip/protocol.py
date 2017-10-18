@@ -46,7 +46,6 @@ class TCP(asyncio.Protocol):
         self.loop = loop
         self.transport = None
         self.ready = asyncio.Future()
-
         self._data = b''
 
     def send_message(self, msg):
