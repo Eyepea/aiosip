@@ -13,7 +13,7 @@ from . import __version__
 from .dialog import Dialog
 from .dialplan import Dialplan
 from .protocol import UDP, TCP
-from .connections import UDPConnector, TCPConnector
+from .peers import UDPConnector, TCPConnector
 
 
 LOG = logging.getLogger(__name__)
