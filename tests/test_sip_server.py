@@ -34,12 +34,12 @@ def test_subscribe(test_server, protocol, loop):
         to_uri='sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port']),
     )
 
-    response = yield from subscribe_dialog.send(
+    response = yield from asyncio.wait_for(subscribe_dialog.send(
                     method='SUBSCRIBE',
                     headers={'Expires': '1800',
                              'Event': 'dialog',
                              'Accept': 'application/dialog-info+xml'}
-                    )
+                    ), timeout=2)
 
     received_request = yield from callback_complete
 
@@ -66,12 +66,12 @@ def test_response_501(test_server, protocol, loop):
         to_uri='sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port']),
     )
 
-    response = yield from subscribe_dialog.send(
+    response = yield from asyncio.wait_for(subscribe_dialog.send(
                     method='SUBSCRIBE',
                     headers={'Expires': '1800',
                              'Event': 'dialog',
                              'Accept': 'application/dialog-info+xml'}
-                    )
+                    ), timeout=2)
 
     assert response.status_code == 501
     assert response.status_message == 'Not Implemented'
@@ -102,12 +102,12 @@ def test_exception_in_handler(test_server, protocol, loop):
         to_uri='sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port']),
     )
 
-    response = yield from subscribe_dialog.send(
+    response = yield from asyncio.wait_for(subscribe_dialog.send(
                     method='SUBSCRIBE',
                     headers={'Expires': '1800',
                              'Event': 'dialog',
                              'Accept': 'application/dialog-info+xml'}
-                    )
+                    ), timeout=2)
 
     assert response.status_code == 500
     assert response.status_message == 'Server Internal Error'

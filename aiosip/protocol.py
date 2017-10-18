@@ -20,18 +20,19 @@ class UDP(asyncio.DatagramProtocol):
     def send_message(self, msg, addr):
         msg.headers['Via'] %= {'protocol': UDP.__name__.upper()}
         LOG.debug('Sent via UDP: "%s"', msg)
-        self.transport.sendto(str(msg).encode(), addr)
+        self.transport.sendto(msg.encode(), addr)
 
     def connection_made(self, transport):
         self.transport = transport
         self.ready.set_result(self.transport)
 
     def datagram_received(self, data, addr):
-        msg = data.decode()
+        headers, data = data.split(b'\r\n\r\n', 1)
+        msg = message.Message.from_raw_headers(headers)
+        msg._raw_payload = data
         LOG.debug('Received via UDP: "%s"', msg)
-        msg_obj = message.Message.from_raw_message(msg)
-
-        asyncio.ensure_future(self.app.dispatch(self, msg_obj, addr))
+        self.app.dispatch(self, msg, addr)
+        asyncio.ensure_future(self.app.dispatch(self, msg, addr))
 
     # def error_received(self, exc):
     #     print('Error received:', exc)
@@ -46,11 +47,12 @@ class TCP(asyncio.Protocol):
         self.loop = loop
         self.transport = None
         self.ready = asyncio.Future()
+        self._data = b''
 
     def send_message(self, msg, addr=None):
         msg.headers['Via'] %= {'protocol': TCP.__name__.upper()}
         LOG.debug('Sent via TCP: "%s"', msg)
-        self.transport.write(str(msg).encode())
+        self.transport.write(msg.encode())
 
     def connection_made(self, transport):
         peer = transport.get_extra_info('peername')
@@ -61,10 +63,20 @@ class TCP(asyncio.Protocol):
     def data_received(self, data):
         if data == b'\r\n\r\n':
             return
-        msg = data.decode()
-        LOG.debug('Received via TCP: "%s"', msg)
-        msg_obj = message.Message.from_raw_message(msg)
-        asyncio.ensure_future(self.app.dispatch(self, msg_obj, None))
+
+        if data.endswith(b'\r\n\r\n'):
+            if self._data:
+                data, self._data = self._data + data, b''
+
+            while data:
+                headers, data = data.split(b'\r\n\r\n', 1)
+                msg = message.Message.from_raw_headers(headers)
+                msg._raw_payload = data[len(headers):int(msg.headers['Content-Length'])]
+                data = data[len(headers) + int(msg.headers['Content-Length']):]
+                LOG.debug('Received via TCP: "%s"', msg)
+                asyncio.ensure_future(self.app.dispatch(self, msg, None))
+        else:
+            self._data += data
 
     # def error_received(self, exc):
     #     print('Error received:', exc)

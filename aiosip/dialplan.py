@@ -1,4 +1,9 @@
+import logging
+
 from collections import MutableMapping
+
+
+LOG = logging.getLogger(__name__)
 
 
 class Dialplan:
