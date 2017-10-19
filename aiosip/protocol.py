@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import socket
 
 from . import message
 

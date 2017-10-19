@@ -63,7 +63,7 @@ class Auth(MutableMapping):
     def __parse_digest(cls, header):
         params = {}
         for arg in header[7:].split(','):
-            k, v = arg.strip().split('=')
+            k, v = arg.strip().split('=', 1)
             if '="' in arg:
                 v = v[1:-1]
             params[k] = v

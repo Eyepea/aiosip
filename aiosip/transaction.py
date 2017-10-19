@@ -105,6 +105,8 @@ class UnreliableTransaction:
             self.future.set_result(msg)
         elif 100 <= msg.status_code < 200:
             pass
+        elif self.future.done():
+            LOG.debug('Receive retransmission for %s, %s, %s', msg.cseq, msg.method, msg.headers['Call-ID'])
         else:
             self.future.set_result(msg)
 

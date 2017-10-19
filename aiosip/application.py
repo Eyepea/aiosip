@@ -14,24 +14,33 @@ from .dialog import Dialog
 from .dialplan import Dialplan
 from .protocol import UDP, TCP
 from .peers import UDPConnector, TCPConnector
+from .contact import Contact
 
 
 LOG = logging.getLogger(__name__)
+
+DEFAULTS = {
+    'user_agent': 'Python/{0[0]}.{0[1]}.{0[2]} aiosip/{1}'.format(sys.version_info, __version__),
+    'override_contact_host': None
+}
 
 
 class Application(MutableMapping):
 
     def __init__(self, *,
-                 user_agent=None,
                  loop=None,
                  dialog_factory=Dialog,
-                 middleware=()
+                 middleware=(),
+                 defaults=None
                  ):
+
         if loop is None:
             loop = asyncio.get_event_loop()
 
-        if user_agent is None:
-            user_agent = 'Python/{0[0]}.{0[1]}.{0[2]} aiosip/{1}'.format(sys.version_info, __version__)
+        if defaults:
+            self.default = {**DEFAULTS, **defaults}
+        else:
+            self.defaults = DEFAULTS
 
         self._finish_callbacks = []
         self._state = {}
@@ -41,7 +50,6 @@ class Application(MutableMapping):
 
         self.dialplan = Dialplan()
         self.dialog_factory = dialog_factory
-        self.user_agent = user_agent
         self.loop = loop
 
     @property
@@ -59,9 +67,13 @@ class Application(MutableMapping):
         peer = await connector.create_peer(local_addr, remote_addr)
         return peer
 
-    async def run(self, local_addr, protocol=UDP):
+    async def run(self, *, local_addr=None, protocol=UDP, sock=None):
+
+        if not local_addr and not sock:
+            raise ValueError('One of "local_addr", "sock" is mandatory')
+
         connector = self._connectors[protocol]
-        server = await connector.create_server(local_addr)
+        server = await connector.create_server(local_addr, sock)
         return server
 
     async def dispatch(self, protocol, msg, addr):
@@ -73,8 +85,8 @@ class Application(MutableMapping):
         if not dialog:
             LOG.debug('New dialog for %s, ID: "%s"', peer.peer_addr, key)
             dialog = peer.create_dialog(
-                from_uri=msg.headers['To'],
-                to_uri=msg.headers['From'],
+                from_details=Contact.from_header(msg.headers['To']),
+                to_details=Contact.from_header(msg.headers['From']),
                 password=None,
                 call_id=msg.headers['Call-ID'],
                 router=self.dialplan.resolve(msg)
@@ -109,6 +121,13 @@ class Application(MutableMapping):
     def close(self):
         for connector in self._connectors.values():
             connector.close()
+
+    def make_handler(self, protocol):
+
+        if issubclass(UDP, protocol):
+            return lambda: protocol(app=self, loop=self.loop)
+        else:
+            return lambda: protocol(app=self, loop=self.loop)
 
     # def __repr__(self):
     #     return "<Application>"
