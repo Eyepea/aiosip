@@ -4,7 +4,7 @@ import uuid
 
 from .dialplan import Router
 from .protocol import UDP, TCP
-
+from .contact import Contact
 
 LOG = logging.getLogger(__name__)
 
@@ -31,17 +31,38 @@ class Peer:
     def send_message(self, msg):
         self._protocol.send_message(msg, addr=self.peer_addr)
 
-    def create_dialog(self, from_uri, to_uri, contact_uri=None, password=None, call_id=None, cseq=0, router=Router()):
+    def create_dialog(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0, router=Router()):
         if not call_id:
             call_id = str(uuid.uuid4())
 
+        if not contact_details:
+            host, port = self.local_addr
+
+            # No way to get the public local addr in UDP. Allow an override or select the From host
+            # Maybe with https://bugs.python.org/issue31203
+            if self._app.defaults['override_contact_host']:
+                host = self._app.defaults['override_contact_host']
+            elif host == '0.0.0.0' or host.startswith('127.'):
+                host = from_details['uri']['host']
+
+            contact_details = Contact(
+                {
+                    'uri': 'sip:{username}@{host}:{port};transport={protocol}'.format(
+                        username=from_details['uri']['user'],
+                        host=host,
+                        port=port,
+                        protocol=type(self._protocol).__name__.upper()
+                    )
+                }
+            )
+
         dialog = self._app.dialog_factory(
             app=self._app,
-            from_uri=from_uri,
-            to_uri=to_uri,
+            from_details=from_details,
+            to_details=to_details,
+            contact_details=contact_details,
             call_id=call_id,
             peer=self,
-            contact_uri=contact_uri,
             password=password,
             cseq=cseq,
             router=router
@@ -78,9 +99,10 @@ class BaseConnector:
 
         self._protocols = {}
         self._peers = {}
+        self._servers = []
 
-    async def create_server(self, local_addr):
-        return await self._create_server(local_addr)
+    async def create_server(self, local_addr, sock):
+        return await self._create_server(local_addr, sock)
 
     async def create_peer(self, local_addr, peer_addr):
         key = local_addr, peer_addr
@@ -119,7 +141,7 @@ class BaseConnector:
     async def _make_key(self, protocol):
         raise NotImplementedError()
 
-    async def _create_server(self, local_addr):
+    async def _create_server(self, local_addr, sock):
         raise NotImplementedError()
 
     async def _create_connection(self, peer_addr):
@@ -135,11 +157,17 @@ class TCPConnector(BaseConnector):
         peer_addr = protocol.transport.get_extra_info('peername')
         return local_addr, peer_addr
 
-    def _create_server(self, local_addr):
-        return self._loop.create_server(
-            lambda: TCP(app=self._app, loop=self._loop),
-            host=local_addr[0],
-            port=local_addr[1])
+    def _create_server(self, local_addr, sock):
+
+        if local_addr:
+            return self._loop.create_server(
+                lambda: TCP(app=self._app, loop=self._loop),
+                host=local_addr[0],
+                port=local_addr[1])
+        else:
+            return self._loop.create_server(
+                lambda: TCP(app=self._app, loop=self._loop),
+                sock=sock)
 
     async def _create_connection(self, local_addr, peer_addr):
         try:
@@ -170,10 +198,10 @@ class UDPConnector(BaseConnector):
     def _make_key(self, protocol):
         return protocol.transport.get_extra_info('sockname')
 
-    def _create_server(self, local_addr):
-        return self._create_connection(local_addr, None)
+    def _create_server(self, local_addr, sock):
+        return self._create_connection(local_addr, None, sock=sock)
 
-    async def _create_connection(self, local_addr, peer_addr):
+    async def _create_connection(self, local_addr, peer_addr, sock=None):
         try:
             return self._protocols[local_addr]
         except KeyError:
@@ -188,3 +216,4 @@ class UDPConnector(BaseConnector):
         peer = await self.create_peer(local_addr, peer_addr)
         assert peer._protocol == protocol
         return peer
+

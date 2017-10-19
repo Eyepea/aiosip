@@ -1,9 +1,13 @@
 import re
+import logging
+
 
 from collections import MutableMapping
 
 from .param import Param
 
+
+LOG = logging.getLogger(__name__)
 
 # Regex pattern from p2p-sip project
 URI_PATTERN = re.compile('^(?P<scheme>[a-zA-Z][a-zA-Z0-9\+\-\.]*):'  # scheme
@@ -53,8 +57,7 @@ class Uri(MutableMapping):
         return r
 
     def contact_repr(self):
-        r = '<%s>' % self.short_uri()
-        return r
+        return '<%s>' % str(self)
 
     def __str__(self):
         r = self.short_uri()

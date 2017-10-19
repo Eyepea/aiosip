@@ -161,10 +161,17 @@ class Message:
 
         msg = []
         for k, v in sorted(self.headers.items()):
-            if isinstance(v, (list, tuple)):
-                msg.extend(['%s: %s' % (k, i) for i in v])
+            if k == 'Via':
+                if isinstance(v, (list, tuple)):
+                    for i in v:
+                        msg.insert(0, '%s: %s' % (k, i))
+                else:
+                    msg.insert(0, '%s: %s' % (k, v))
             else:
-                msg.append('%s: %s' % (k, v))
+                if isinstance(v, (list, tuple)):
+                    msg.extend(['%s: %s' % (k, i) for i in v])
+                else:
+                    msg.append('%s: %s' % (k, v))
         msg.append(utils.EOL)
         return utils.EOL.join(msg)
 
@@ -276,7 +283,7 @@ class Request(Message):
 class Response(Message):
     def __init__(self,
                  status_code,
-                 status_message,
+                 status_message=None,
                  headers=None,
                  from_details=None,
                  to_details=None,
@@ -294,6 +301,9 @@ class Response(Message):
             to_details=to_details,
             contact_details=contact_details
         )
+
+        if not status_message:
+            status_message = utils.STATUS[int(status_code)]
 
         if cseq:
             self._cseq = cseq

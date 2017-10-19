@@ -9,12 +9,7 @@ def test_subscribe(test_server, protocol, loop):
 
     @asyncio.coroutine
     def handler(dialog, request):
-        rep = aiosip.Response.from_request(
-            request=request,
-            status_code=200,
-            status_message='OK'
-        )
-        dialog.reply(rep)
+        dialog.reply(request, status_code=200)
         callback_complete.set_result(request)
 
     app = aiosip.Application(loop=loop)
@@ -23,18 +18,18 @@ def test_subscribe(test_server, protocol, loop):
     server_app.dialplan.add_user('pytest', {'SUBSCRIBE': handler})
     server = yield from test_server(server_app)
 
-    connection = yield from app.connect(
+    peer = yield from app.connect(
         protocol=protocol,
         local_addr=(server.sip_config['client_host'], server.sip_config['client_port']),
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
-    subscribe_dialog = connection.create_dialog(
-        from_uri='sip:{}@{}:{}'.format(server.sip_config['user'], server.sip_config['client_host'], server.sip_config['client_port']),
-        to_uri='sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port']),
+    subscribe_dialog = peer.create_dialog(
+        from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(server.sip_config['user'], server.sip_config['client_host'], server.sip_config['client_port'])),
+        to_details=aiosip.Contact.from_header('sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port'])),
     )
 
-    response = yield from asyncio.wait_for(subscribe_dialog.send(
+    response = yield from asyncio.wait_for(subscribe_dialog.request(
                     method='SUBSCRIBE',
                     headers={'Expires': '1800',
                              'Event': 'dialog',
@@ -55,18 +50,18 @@ def test_response_501(test_server, protocol, loop):
     app = aiosip.Application(loop=loop)
     server_app = aiosip.Application(loop=loop)
     server = yield from test_server(server_app)
-    connection = yield from app.connect(
+    peer = yield from app.connect(
         protocol=protocol,
         local_addr=(server.sip_config['client_host'], server.sip_config['client_port']),
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
-    subscribe_dialog = connection.create_dialog(
-        from_uri='sip:{}@{}:{}'.format(server.sip_config['user'], server.sip_config['client_host'], server.sip_config['client_port']),
-        to_uri='sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port']),
+    subscribe_dialog = peer.create_dialog(
+        from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(server.sip_config['user'], server.sip_config['client_host'], server.sip_config['client_port'])),
+        to_details=aiosip.Contact.from_header('sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port'])),
     )
 
-    response = yield from asyncio.wait_for(subscribe_dialog.send(
+    response = yield from asyncio.wait_for(subscribe_dialog.request(
                     method='SUBSCRIBE',
                     headers={'Expires': '1800',
                              'Event': 'dialog',
@@ -91,18 +86,18 @@ def test_exception_in_handler(test_server, protocol, loop):
     server_app.dialplan.add_user('pytest', {'SUBSCRIBE': handler})
     server = yield from test_server(server_app)
 
-    connection = yield from app.connect(
+    peer = yield from app.connect(
         protocol=protocol,
         local_addr=(server.sip_config['client_host'], server.sip_config['client_port']),
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
-    subscribe_dialog = connection.create_dialog(
-        from_uri='sip:{}@{}:{}'.format(server.sip_config['user'], server.sip_config['client_host'], server.sip_config['client_port']),
-        to_uri='sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port']),
+    subscribe_dialog = peer.create_dialog(
+        from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(server.sip_config['user'], server.sip_config['client_host'], server.sip_config['client_port'])),
+        to_details=aiosip.Contact.from_header('sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port'])),
     )
 
-    response = yield from asyncio.wait_for(subscribe_dialog.send(
+    response = yield from asyncio.wait_for(subscribe_dialog.request(
                     method='SUBSCRIBE',
                     headers={'Expires': '1800',
                              'Event': 'dialog',

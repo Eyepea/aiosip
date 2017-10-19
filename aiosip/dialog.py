@@ -5,7 +5,6 @@ from collections import defaultdict
 from multidict import CIMultiDict
 
 from . import utils, __version__
-from .contact import Contact
 from .message import Request, Response
 from .dialplan import Router
 from .transaction import UnreliableTransaction
@@ -20,22 +19,20 @@ LOG = logging.getLogger(__name__)
 class Dialog:
     def __init__(self,
                  app,
-                 from_uri,
-                 to_uri,
+                 from_details,
+                 to_details,
                  call_id,
                  peer,
+                 contact_details,
                  *,
-                 contact_uri=None,
                  password=None,
                  router=Router(),
                  cseq=0):
 
         self.app = app
-        self.from_uri = from_uri
-        self.to_uri = to_uri
-        self.from_details = Contact.from_header(from_uri)
-        self.to_details = Contact.from_header(to_uri)
-        self.contact_details = Contact.from_header(contact_uri or from_uri)
+        self.from_details = from_details
+        self.to_details = to_details
+        self.contact_details = contact_details
         self.call_id = call_id
         self.peer = peer
         self.password = password
@@ -53,6 +50,9 @@ class Dialog:
         del self.router[method.lower()]
 
     async def receive_message(self, msg):
+        if self.cseq < msg.cseq:
+            self.cseq = msg.cseq
+
         if isinstance(msg, Response):
             try:
                 transaction = self._transactions[msg.method][msg.cseq]
@@ -69,19 +69,9 @@ class Dialog:
                 pass
             except Exception as e:
                 LOG.exception(e)
-                response = Response.from_request(
-                    request=msg,
-                    status_code=500,
-                    status_message='Server Internal Error'
-                )
-                self.reply(response)
+                self.reply(msg, status_code=500)
         else:
-            response = Response.from_request(
-                request=msg,
-                status_code=501,
-                status_message='Not Implemented',
-            )
-            self.reply(response)
+            self.reply(msg, status_code=501)
 
     async def _call_route(self, msg):
         route = self.router[msg.method]
@@ -92,15 +82,9 @@ class Dialog:
 
     def unauthorized(self, msg):
         self._nonce = utils.gen_str(10)
-        hdrs = CIMultiDict()
-        hdrs['WWW-Authenticate'] = str(Auth(nonce=self._nonce, algorithm='md5', realm='sip'))
-        response = Response.from_request(
-            request=msg,
-            status_code=401,
-            status_message='Unauthorized',
-            headers=hdrs
-        )
-        self.reply(response)
+        headers = CIMultiDict()
+        headers['WWW-Authenticate'] = str(Auth(nonce=self._nonce, algorithm='md5', realm='sip'))
+        self.reply(msg, status_code=401, headers=headers)
 
     def validate_auth(self, msg, password):
         if msg.auth and msg.auth.validate(password, self._nonce):
@@ -111,53 +95,85 @@ class Dialog:
         else:
             return False
 
-    def send(self, method, to_details=None, from_details=None, contact_details=None, headers=None, payload=None, future=None):
-
-        if headers is None:
-            headers = CIMultiDict()
-        if 'Call-ID' not in headers:
-            headers['Call-ID'] = self.call_id
-        if 'User-Agent' not in headers:
-            headers['User-Agent'] = self.app.user_agent
-
-        if from_details:
-            from_details = Contact(from_details)
-        else:
-            from_details = self.from_details
-        from_details.add_tag()
-
-        self.cseq += 1
-        msg = Request(method=method,
-                      from_details=from_details,
-                      to_details=to_details if to_details else self.to_details,
-                      contact_details=contact_details if contact_details else self.contact_details,
-                      cseq=self.cseq,
-                      headers=headers,
-                      payload=payload,
-                      future=future)
-
-        if method != 'ACK':
-            return self.start_transaction(method, msg)
-
-        self.peer.send_message(msg)
-        return None
-
-    def start_transaction(self, method, msg):
+    async def start_transaction(self, msg):
         transaction = UnreliableTransaction(self, original_msg=msg,
                                             future=msg.future,
                                             loop=self.app.loop)
 
-        self._transactions[method][self.cseq] = transaction
-        return transaction.start()
+        self._transactions[msg.method][self.cseq] = transaction
+        return await transaction.start()
 
-    def reply(self, response):
-        response.to_details.add_tag()
-        response.headers['Call-ID'] = self.call_id
+    async def send(self, msg):
 
-        if 'User-Agent' not in response.headers:
-            response.headers['User-Agent'] = self.app.user_agent
+        if issubclass(Request, msg):
+            return await self._send_request(msg)
+        elif isinstance(Response, msg):
+            return self.peer.send_message(msg)
+        else:
+            return self.peer.send_message(msg)
 
-        self.peer.send_message(response)
+    async def _send_request(self, msg):
+
+        if msg.method != 'ACK':
+            return await self.start_transaction(msg)
+
+        self.peer.send_message(msg)
+        return None
+
+    def reply(self, request, status_code, status_message=None, payload=None, headers=None, contact_details=None):
+        self.from_details.add_tag()
+
+        if contact_details:
+            self.contact_details = contact_details
+
+        if not headers:
+            headers = CIMultiDict()
+
+        if 'User-Agent' not in headers:
+            headers['User-Agent'] = self.app.defaults['user_agent']
+
+        headers['Call-ID'] = self.call_id
+        headers['Via'] = request.headers['Via']
+
+        msg = Response(
+            status_code=status_code,
+            status_message=status_message,
+            headers=headers,
+            from_details=self.to_details,
+            to_details=self.from_details,
+            contact_details=self.contact_details,
+            payload=payload,
+            cseq=request.cseq,
+            method=request.method
+        )
+        self.peer.send_message(msg)
+
+    async def request(self, method, contact_details=None, headers=None, payload=None, future=None):
+        self.from_details.add_tag()
+        self.cseq += 1
+
+        if contact_details:
+            self.contact_details = contact_details
+
+        if not headers:
+            headers = CIMultiDict()
+
+        if 'User-Agent' not in headers:
+            headers['User-Agent'] = self.app.defaults['user_agent']
+
+        headers['Call-ID'] = self.call_id
+
+        msg = Request(
+            method=method,
+            cseq=self.cseq,
+            from_details=self.from_details,
+            to_details=self.to_details,
+            contact_details=self.contact_details,
+            headers=headers,
+            payload=payload,
+            future=future
+        )
+        return await self._send_request(msg)
 
     def close(self):
         self.peer._stop_dialog(self.call_id)
@@ -208,7 +224,6 @@ class Dialog:
                                     headers=headers,
                                     payload=sdp)
         return send_msg_future
-
 
     def __enter__(self):
         return self
