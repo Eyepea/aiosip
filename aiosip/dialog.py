@@ -103,22 +103,17 @@ class Dialog:
         self._transactions[msg.method][self.cseq] = transaction
         return await transaction.start()
 
-    async def send(self, msg):
+    async def send(self, msg, as_request=False):
+        # This allow to send string as SIP message. msg only need an encode method.
 
         if issubclass(Request, msg):
-            return await self._send_request(msg)
+            return await self.start_transaction(msg)
         elif isinstance(Response, msg):
             return self.peer.send_message(msg)
+        elif as_request:
+            return await self.start_transaction(msg)
         else:
             return self.peer.send_message(msg)
-
-    async def _send_request(self, msg):
-
-        if msg.method != 'ACK':
-            return await self.start_transaction(msg)
-
-        self.peer.send_message(msg)
-        return None
 
     def reply(self, request, status_code, status_message=None, payload=None, headers=None, contact_details=None):
         self.from_details.add_tag()
@@ -173,7 +168,7 @@ class Dialog:
             payload=payload,
             future=future
         )
-        return await self._send_request(msg)
+        return await self.start_transaction(msg)
 
     def close(self):
         self.peer._stop_dialog(self.call_id)

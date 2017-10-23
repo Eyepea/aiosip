@@ -122,13 +122,6 @@ class Application(MutableMapping):
         for connector in self._connectors.values():
             connector.close()
 
-    def make_handler(self, protocol):
-
-        if issubclass(UDP, protocol):
-            return lambda: protocol(app=self, loop=self.loop)
-        else:
-            return lambda: protocol(app=self, loop=self.loop)
-
     # def __repr__(self):
     #     return "<Application>"
 
