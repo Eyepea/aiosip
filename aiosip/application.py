@@ -38,7 +38,7 @@ class Application(MutableMapping):
             loop = asyncio.get_event_loop()
 
         if defaults:
-            self.default = {**DEFAULTS, **defaults}
+            self.defaults = {**DEFAULTS, **defaults}
         else:
             self.defaults = DEFAULTS
 
