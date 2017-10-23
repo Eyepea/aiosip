@@ -159,6 +159,9 @@ class Message:
         if 'Call-ID' not in self.headers:
             self.headers['Call-ID'] = uuid.uuid4()
 
+        return self._format_headers()
+
+    def _format_headers(self):
         msg = []
         for k, v in sorted(self.headers.items()):
             if k == 'Via':

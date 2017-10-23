@@ -24,9 +24,11 @@ before_cache:
 install:
   - pip install --upgrade pip wheel
   - pip install --upgrade setuptools
+  - pip install flake8
   - pip install pytest pytest-cov codecov uvloop -e .
 
 script:
+  - flake8 aiosip examples tests
   - py.test --cov=aiosip --cov-report=term --cov-report=html --cov-append --loop pyloop,uvloop tests
 
 after_success:

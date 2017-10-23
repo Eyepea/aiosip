@@ -69,11 +69,7 @@ def main_tcp(app):
 
 
 def main_udp(app):
-    server = app.loop.run_until_complete(
-        app.run(
-            local_addr=(sip_config['local_ip'], sip_config['local_port'])
-        )
-    )
+    app.loop.run_until_complete(app.run(local_addr=(sip_config['local_ip'], sip_config['local_port'])))
 
     print('Serving on {} UDP'.format((sip_config['local_ip'], sip_config['local_port'])))
 
