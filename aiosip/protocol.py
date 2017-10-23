@@ -20,7 +20,7 @@ class UDP(asyncio.DatagramProtocol):
 
     def send_message(self, msg, addr):
         msg.headers['Via'] %= {'protocol': UDP.__name__.upper()}
-        LOG.debug('Sent via UDP: "%s"', msg)
+        LOG.log(5, 'Sent via UDP: "%s"', msg)
         self.transport.sendto(msg.encode(), addr)
 
     def connection_made(self, transport):
@@ -31,7 +31,7 @@ class UDP(asyncio.DatagramProtocol):
         headers, data = data.split(b'\r\n\r\n', 1)
         msg = message.Message.from_raw_headers(headers)
         msg._raw_payload = data
-        LOG.debug('Received via UDP: "%s"', msg)
+        LOG.log(5, 'Received via UDP: "%s"', msg)
         asyncio.ensure_future(self.app.dispatch(self, msg, addr))
 
     # def error_received(self, exc):
@@ -51,12 +51,12 @@ class TCP(asyncio.Protocol):
 
     def send_message(self, msg, addr=None):
         msg.headers['Via'] %= {'protocol': TCP.__name__.upper()}
-        LOG.debug('Sent via TCP: "%s"', msg)
+        LOG.log(5, 'Sent via TCP: "%s"', msg)
         self.transport.write(msg.encode())
 
     def connection_made(self, transport):
         peer = transport.get_extra_info('peername')
-        LOG.debug('TCP connection made to %s', peer)
+        LOG.log(5, 'TCP connection made to %s', peer)
         self.transport = transport
         self.ready.set_result(self.transport)
 
@@ -73,7 +73,7 @@ class TCP(asyncio.Protocol):
                 msg = message.Message.from_raw_headers(headers)
                 msg._raw_payload = data[len(headers):int(msg.headers['Content-Length'])]
                 data = data[len(headers) + int(msg.headers['Content-Length']):]
-                LOG.debug('Received via TCP: "%s"', msg)
+                LOG.log(5, 'Received via TCP: "%s"', msg)
                 asyncio.ensure_future(self.app.dispatch(self, msg, None))
         else:
             self._data += data
