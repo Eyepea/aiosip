@@ -24,9 +24,19 @@ def test_subscribe(test_server, protocol, loop):
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
+    from_details = 'sip:{user}@{host}:{port}'.format(
+        user=server.sip_config['user'],
+        host=server.sip_config['client_host'],
+        port=server.sip_config['client_port']
+    )
+    to_details = 'sip:666@{host}:{port}'.format(
+        host=server.sip_config['server_host'],
+        port=server.sip_config['server_port']
+    )
+
     subscribe_dialog = peer.create_dialog(
-        from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(server.sip_config['user'], server.sip_config['client_host'], server.sip_config['client_port'])),
-        to_details=aiosip.Contact.from_header('sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port'])),
+        from_details=aiosip.Contact.from_header(from_details),
+        to_details=aiosip.Contact.from_header(to_details),
     )
 
     response = yield from asyncio.wait_for(subscribe_dialog.request(
@@ -56,9 +66,19 @@ def test_response_501(test_server, protocol, loop):
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
+    from_details = 'sip:{user}@{host}:{port}'.format(
+        user=server.sip_config['user'],
+        host=server.sip_config['client_host'],
+        port=server.sip_config['client_port']
+    )
+    to_details = 'sip:666@{host}:{port}'.format(
+        host=server.sip_config['server_host'],
+        port=server.sip_config['server_port']
+    )
+
     subscribe_dialog = peer.create_dialog(
-        from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(server.sip_config['user'], server.sip_config['client_host'], server.sip_config['client_port'])),
-        to_details=aiosip.Contact.from_header('sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port'])),
+        from_details=aiosip.Contact.from_header(from_details),
+        to_details=aiosip.Contact.from_header(to_details),
     )
 
     response = yield from asyncio.wait_for(subscribe_dialog.request(
@@ -92,9 +112,19 @@ def test_exception_in_handler(test_server, protocol, loop):
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
+    from_details = 'sip:{user}@{host}:{port}'.format(
+        user=server.sip_config['user'],
+        host=server.sip_config['client_host'],
+        port=server.sip_config['client_port']
+    )
+    to_details = 'sip:666@{host}:{port}'.format(
+        host=server.sip_config['server_host'],
+        port=server.sip_config['server_port']
+    )
+
     subscribe_dialog = peer.create_dialog(
-        from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(server.sip_config['user'], server.sip_config['client_host'], server.sip_config['client_port'])),
-        to_details=aiosip.Contact.from_header('sip:666@{}:{}'.format(server.sip_config['server_host'], server.sip_config['server_port'])),
+        from_details=aiosip.Contact.from_header(from_details),
+        to_details=aiosip.Contact.from_header(to_details),
     )
 
     response = yield from asyncio.wait_for(subscribe_dialog.request(

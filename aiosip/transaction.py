@@ -37,63 +37,9 @@ class UnreliableTransaction:
             self.retransmission = None
 
         if msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
-            if self.dialog.password is None:
-                raise ValueError('Password required for authentication')
-
-            if msg.method.upper() == 'REGISTER':
-                self.attempts -= 1
-                if self.attempts < 1:
-                    self.future.set_exception(
-                        RegisterFailed('Too many unauthorized attempts!')
-                    )
-                    return
-                username = msg.to_details['uri']['user']
-            elif msg.method.upper() == 'INVITE':
-                self.attempts -= 1
-                if self.attempts < 1:
-                    self.future.set_exception(
-                        InviteFailed('Too many unauthorized attempts!')
-                    )
-                    return
-                username = msg.from_details['uri']['user']
-
-                hdrs = CIMultiDict()
-                hdrs['From'] = msg.headers['From']
-                hdrs['To'] = msg.headers['To']
-                hdrs['Call-ID'] = msg.headers['Call-ID']
-                hdrs['CSeq'] = msg.headers['CSeq'].replace(self.original_msg.method, 'ACK')
-                hdrs['Via'] = msg.headers['Via']
-                self.dialog.send(method='ACK', headers=hdrs)
-            else:
-                username = msg.from_details['uri']['user']
-
-            del(self.original_msg.headers['CSeq'])
-            self.original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
-                authenticate=msg.headers['WWW-Authenticate'],
-                method=msg.method,
-                uri=msg.to_details['uri'].short_uri(),
-                username=username,
-                password=self.dialog.password))
-            self.dialog.send(self.original_msg.method,
-                             to_details=msg.to_details,
-                             headers=self.original_msg.headers,
-                             payload=self.original_msg.payload,
-                             future=self.future)
-
-        # for proxy authentication
-        elif msg.status_code == 407:
-            self.original_msg = self.original_msg.pop(msg.cseq)
-            del(self.original_msg.headers['CSeq'])
-            self.original_msg.headers['Proxy-Authorization'] = str(Auth.from_authenticate_header(
-                authenticate=msg.headers['Proxy-Authenticate'],
-                method=msg.method,
-                uri=str(self.to_details),
-                username=self.to_details['uri']['user'],
-                password=self.dialog.password))
-            self.dialog.send_message(msg.method,
-                                     headers=self.original_msg.headers,
-                                     payload=self.original_msg.payload,
-                                     future=self.futrue)
+            self._handle_authenticate(msg)
+        elif msg.status_code == 407:  # Proxy authentication
+            self._handle_proxy_authenticate(msg)
         elif self.original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
             hdrs = CIMultiDict()
             hdrs['From'] = msg.headers['From']
@@ -109,6 +55,65 @@ class UnreliableTransaction:
             LOG.debug('Receive retransmission for %s, %s, %s', msg.cseq, msg.method, msg.headers['Call-ID'])
         else:
             self.future.set_result(msg)
+
+    def _handle_authenticate(self, msg):
+        if self.dialog.password is None:
+            raise ValueError('Password required for authentication')
+
+        if msg.method.upper() == 'REGISTER':
+            self.attempts -= 1
+            if self.attempts < 1:
+                self.future.set_exception(
+                    RegisterFailed('Too many unauthorized attempts!')
+                )
+                return
+            username = msg.to_details['uri']['user']
+        elif msg.method.upper() == 'INVITE':
+            self.attempts -= 1
+            if self.attempts < 1:
+                self.future.set_exception(
+                    InviteFailed('Too many unauthorized attempts!')
+                )
+                return
+            username = msg.from_details['uri']['user']
+
+            hdrs = CIMultiDict()
+            hdrs['From'] = msg.headers['From']
+            hdrs['To'] = msg.headers['To']
+            hdrs['Call-ID'] = msg.headers['Call-ID']
+            hdrs['CSeq'] = msg.headers['CSeq'].replace(self.original_msg.method, 'ACK')
+            hdrs['Via'] = msg.headers['Via']
+            self.dialog.send(method='ACK', headers=hdrs)
+        else:
+            username = msg.from_details['uri']['user']
+
+        del (self.original_msg.headers['CSeq'])
+        self.original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
+            authenticate=msg.headers['WWW-Authenticate'],
+            method=msg.method,
+            uri=msg.to_details['uri'].short_uri(),
+            username=username,
+            password=self.dialog.password))
+        self.dialog.send(self.original_msg.method,
+                         to_details=msg.to_details,
+                         headers=self.original_msg.headers,
+                         payload=self.original_msg.payload,
+                         future=self.future)
+
+    def _handle_proxy_authenticate(self, msg):
+        self._handle_proxy_authenticate(msg)
+        self.original_msg = self.original_msg.pop(msg.cseq)
+        del (self.original_msg.headers['CSeq'])
+        self.original_msg.headers['Proxy-Authorization'] = str(Auth.from_authenticate_header(
+            authenticate=msg.headers['Proxy-Authenticate'],
+            method=msg.method,
+            uri=str(self.to_details),
+            username=self.to_details['uri']['user'],
+            password=self.dialog.password))
+        self.dialog.send_message(msg.method,
+                                 headers=self.original_msg.headers,
+                                 payload=self.original_msg.payload,
+                                 future=self.futrue)
 
     def start(self):
         if self.original_msg.method in ('REGISTER', 'INVITE', 'SUBSCRIBE'):

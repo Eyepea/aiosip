@@ -12,10 +12,10 @@ LOG = logging.getLogger(__name__)
 # Regex pattern from p2p-sip project
 URI_PATTERN = re.compile('^(?P<scheme>[a-zA-Z][a-zA-Z0-9\+\-\.]*):'  # scheme
                          + '(?:(?:(?P<user>[a-zA-Z0-9\-\_\.!\~\*\'\(\)&=\+\$,;\?\/\%]+)'  # user
-                         + '(?::(?P<password>[^:@;\?]+))?)@)?' # password
+                         + '(?::(?P<password>[^:@;\?]+))?)@)?'  # password
                          + '(?:(?:(?P<host>[^;\?:]*)(?::(?P<port>[\d]+))?))'  # host, port
-                         + '(?:;(?P<params>[^\?]*))?' # parameters
-                         + '(?:\?(?P<headers>.*))?$') # headers
+                         + '(?:;(?P<params>[^\?]*))?'  # parameters
+                         + '(?:\?(?P<headers>.*))?$')  # headers
 
 
 class Uri(MutableMapping):

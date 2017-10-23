@@ -31,7 +31,8 @@ class Peer:
     def send_message(self, msg):
         self._protocol.send_message(msg, addr=self.peer_addr)
 
-    def create_dialog(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0, router=Router()):
+    def create_dialog(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
+                      router=Router()):
         if not call_id:
             call_id = str(uuid.uuid4())
 
@@ -216,4 +217,3 @@ class UDPConnector(BaseConnector):
         peer = await self.create_peer(local_addr, peer_addr)
         assert peer._protocol == protocol
         return peer
-
