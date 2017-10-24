@@ -12,7 +12,8 @@ history = open('HISTORY.rst').read().replace('.. :changelog:', '')
 
 requirements = [
    'multidict>=2.0',
-   'pyquery'
+   'pyquery',
+   'aiodns'
 ]
 
 test_requirements = [

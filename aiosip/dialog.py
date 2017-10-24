@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 
 from collections import defaultdict
 from multidict import CIMultiDict
@@ -7,7 +8,7 @@ from multidict import CIMultiDict
 from . import utils
 from .message import Request, Response
 from .dialplan import Router
-from .transaction import UnreliableTransaction
+from .transaction import UnreliableTransaction, ProxyTransaction
 from .auth import Auth
 
 from functools import partial
@@ -26,7 +27,7 @@ class Dialog:
                  contact_details,
                  *,
                  password=None,
-                 router=Router(),
+                 router=None,
                  cseq=0):
 
         self.app = app
@@ -37,7 +38,7 @@ class Dialog:
         self.peer = peer
         self.password = password
         self.cseq = cseq
-        self.router = router
+        self.router = router or Router()
         self._transactions = defaultdict(dict)
         self.callbacks = defaultdict(list)
         self._tasks = list()
@@ -54,15 +55,30 @@ class Dialog:
             self.cseq = msg.cseq
 
         if isinstance(msg, Response):
-            try:
-                transaction = self._transactions[msg.method][msg.cseq]
-                transaction.feed_message(msg)
-            except KeyError:
-                raise ValueError('This Response SIP message doesn\'t have Request: "%s"' % msg)
+            return self._receive_response(msg)
+        else:
+            return await self._receive_request(msg)
 
-        elif msg.method in self.router:
+    def _receive_response(self, msg):
+        try:
+            transaction = self._transactions[msg.method][msg.cseq]
+            transaction.feed_message(msg)
+        except KeyError:
+            raise ValueError('This Response SIP message doesn\'t have a Request: "%s"' % msg)
+
+    async def _receive_request(self, msg):
+
+        if msg.method == 'REGISTER':
+            expire = int(msg.headers.get('Expires', 0))
+            self.peer.registered[msg.contact_details['uri']['user']] = time.time() + expire
+        elif msg.method == 'SUBSCRIBE':
+            expire = int(msg.headers.get('Expires', 0))
+            self.peer.subscriber[msg.contact_details['uri']['user']] = time.time() + expire
+
+        route = self.router.get(msg.method)
+        if route:
             try:
-                t = asyncio.ensure_future(self._call_route(msg))
+                t = asyncio.ensure_future(self._call_route(route, msg))
                 self._tasks.append(t)
                 await t
             except asyncio.CancelledError:
@@ -73,8 +89,7 @@ class Dialog:
         else:
             self.reply(msg, status_code=501)
 
-    async def _call_route(self, msg):
-        route = self.router[msg.method]
+    async def _call_route(self, route, msg):
         for middleware_factory in reversed(self.app._middleware):
             route = await middleware_factory(route)
 
@@ -96,19 +111,26 @@ class Dialog:
             return False
 
     async def start_transaction(self, msg):
-        transaction = UnreliableTransaction(self, original_msg=msg,
-                                            future=msg.future,
-                                            loop=self.app.loop)
-
+        transaction = UnreliableTransaction(self, original_msg=msg, future=msg.future, loop=self.app.loop)
         self._transactions[msg.method][self.cseq] = transaction
         return await transaction.start()
+
+    async def start_proxy_transaction(self, msg, peer):
+        if msg.cseq not in self._transactions[msg.method]:
+            transaction = ProxyTransaction(dialog=self, original_msg=msg, future=msg.future, loop=self.app.loop,
+                                           proxy_peer=peer)
+            self._transactions[msg.method][msg.cseq] = transaction
+            return await transaction.start()
+        else:
+            LOG.debug('Message already transmitted: %s %s, %s', msg.cseq, msg.method, msg.headers['Call-ID'])
+        return None
 
     async def send(self, msg, as_request=False):
         # This allow to send string as SIP message. msg only need an encode method.
 
-        if issubclass(Request, msg):
+        if issubclass(Request, msg) and msg.method != 'ACK':
             return await self.start_transaction(msg)
-        elif isinstance(Response, msg):
+        elif isinstance(Response, msg) or msg.method == 'ACK':
             return self.peer.send_message(msg)
         elif as_request:
             return await self.start_transaction(msg)
@@ -225,3 +247,6 @@ class Dialog:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+    def __repr__(self):
+        return '<{0} call_id={1}, peer={2}>'.format(self.__class__.__name__, self.call_id, self.peer)

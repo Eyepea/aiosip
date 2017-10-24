@@ -1,5 +1,6 @@
 import logging
 
+from . import utils
 from collections import MutableMapping
 
 
@@ -20,17 +21,23 @@ class Dialplan:
         user = message.from_details['uri']['user']
         return self._dialplan.get(user, Router())
 
+    def get_user(self, user):
+        return self._dialplan.get(user)
+
 
 class Router(MutableMapping):
-    def __init__(self):
-        self._routes = {}
+    def __init__(self, default=None):
+        self._routes = {'*': default}
 
     # MutableMapping API
     def __eq__(self, other):
         return self is other
 
     def __getitem__(self, key):
-        return self._routes[key.lower()]
+        try:
+            return self._routes[key.lower()]
+        except KeyError:
+            return self._routes['*']
 
     def __setitem__(self, key, value):
         self._routes[key.lower()] = value
@@ -43,3 +50,14 @@ class Router(MutableMapping):
 
     def __iter__(self):
         return iter(self._routes)
+
+
+class ProxyRouter(Router):
+    def __init__(self):
+        super().__init__(default=self.proxy)
+
+    async def proxy(self, dialog, msg):
+        peer = await utils.get_proxy_peer(dialog, msg)
+        proxy_response = await peer.proxy_request(dialog, msg)
+        if proxy_response:
+            dialog.peer.proxy_response(proxy_response)

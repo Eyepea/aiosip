@@ -18,32 +18,20 @@ sip_config = {
 @asyncio.coroutine
 def notify(dialog):
     for idx in range(1, 4):
-        yield from dialog.send('NOTIFY',
-                               payload=str(idx))
+        yield from dialog.request('NOTIFY',
+                                  payload=str(idx))
         yield from asyncio.sleep(1)
 
 
 @asyncio.coroutine
 def on_register(dialog, message):
-    response = aiosip.Response.from_request(
-        request=message,
-        status_code=200,
-        status_message='OK',
-    )
-
-    dialog.reply(response)
+    dialog.reply(message, status_code=200)
     print('Registration successful')
 
 
 @asyncio.coroutine
 def on_subscribe(dialog, message):
-    response = aiosip.Response.from_request(
-        request=message,
-        status_code=200,
-        status_message='OK',
-    )
-
-    dialog.reply(response)
+    dialog.reply(message, status_code=200)
     print('Subscription started!')
     yield from notify(dialog)
 
@@ -92,7 +80,7 @@ def main():
     else:
         main_udp(app)
 
-    loop.close()
+    # loop.close()
 
 
 if __name__ == '__main__':

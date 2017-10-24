@@ -38,6 +38,15 @@ class TestServer:
         }
 
 
+class TestProxy(TestServer):
+    @property
+    def sip_config(self):
+        return {
+            'server_host': self.host,
+            'server_port': 8000,
+        }
+
+
 @pytest.fixture(params=['udp', 'tcp'])
 def protocol(request):
     if request.param == 'udp':
@@ -54,6 +63,27 @@ def test_server(protocol, loop):
     @asyncio.coroutine
     def go(handler, **kwargs):
         server = TestServer(handler)
+        yield from server.start_server(protocol, loop=loop, **kwargs)
+        servers.append(server)
+        return server
+
+    yield go
+
+    @asyncio.coroutine
+    def finalize():
+        while servers:
+            yield from servers.pop().close()
+
+    loop.run_until_complete(finalize())
+
+
+@pytest.yield_fixture
+def test_proxy(protocol, loop):
+    servers = []
+
+    @asyncio.coroutine
+    def go(handler, **kwargs):
+        server = TestProxy(handler)
         yield from server.start_server(protocol, loop=loop, **kwargs)
         servers.append(server)
         return server
