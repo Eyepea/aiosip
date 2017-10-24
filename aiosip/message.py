@@ -153,7 +153,7 @@ class Message:
         if hasattr(self, '_contact_details'):
             self.headers['Contact'] = str(self.contact_details)
 
-        self.headers['Content-Length'] = len(self._raw_payload)
+        self.headers['Content-Length'] = str(len(self._raw_payload))
         if 'Max-Forwards' not in self.headers:
             self.headers['Max-Forwards'] = '70'
         if 'Call-ID' not in self.headers:
@@ -166,8 +166,7 @@ class Message:
         for k, v in sorted(self.headers.items()):
             if k == 'Via':
                 if isinstance(v, (list, tuple)):
-                    for i in v:
-                        msg.insert(0, '%s: %s' % (k, i))
+                    msg = ['%s: %s' % (k, i) for i in v] + msg
                 else:
                     msg.insert(0, '%s: %s' % (k, v))
             else:

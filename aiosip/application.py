@@ -4,6 +4,7 @@ Same structure as aiohttp.web.Application
 import sys
 import asyncio
 import logging
+import aiodns
 
 __all__ = ['Application']
 
@@ -31,7 +32,9 @@ class Application(MutableMapping):
                  loop=None,
                  dialog_factory=Dialog,
                  middleware=(),
-                 defaults=None
+                 defaults=None,
+                 dialplan=None,
+                 dns_resolver=aiodns.DNSResolver()
                  ):
 
         if loop is None:
@@ -42,13 +45,14 @@ class Application(MutableMapping):
         else:
             self.defaults = DEFAULTS
 
+        self.dns = dns_resolver
         self._finish_callbacks = []
         self._state = {}
         self._connectors = {UDP: UDPConnector(self, loop=loop),
                             TCP: TCPConnector(self, loop=loop)}
         self._middleware = middleware
 
-        self.dialplan = Dialplan()
+        self.dialplan = dialplan or Dialplan()
         self.dialog_factory = dialog_factory
         self.loop = loop
 
@@ -62,15 +66,19 @@ class Application(MutableMapping):
         for peer in self.peers:
             yield from peer._dialogs.values()
 
-    async def connect(self, local_addr, remote_addr, protocol=UDP):
+    async def connect(self, remote_addr, protocol=UDP):
         connector = self._connectors[protocol]
-        peer = await connector.create_peer(local_addr, remote_addr)
+        peer = await connector.create_peer(remote_addr)
         return peer
 
     async def run(self, *, local_addr=None, protocol=UDP, sock=None):
 
         if not local_addr and not sock:
             raise ValueError('One of "local_addr", "sock" is mandatory')
+        elif local_addr and sock:
+            raise ValueError('local_addr, sock are mutually exclusive')
+        elif not local_addr:
+            local_addr = None, None
 
         connector = self._connectors[protocol]
         server = await connector.create_server(local_addr, sock)
@@ -79,11 +87,10 @@ class Application(MutableMapping):
     async def dispatch(self, protocol, msg, addr):
         connector = self._connectors[type(protocol)]
         peer = await connector.get_peer(protocol, addr)
-
         key = msg.headers['Call-ID']
         dialog = peer._dialogs.get(key)
         if not dialog:
-            LOG.debug('New dialog for %s, ID: "%s"', peer.peer_addr, key)
+            LOG.debug('New dialog for %s, ID: "%s"', peer, key)
             dialog = peer.create_dialog(
                 from_details=Contact.from_header(msg.headers['To']),
                 to_details=Contact.from_header(msg.headers['From']),

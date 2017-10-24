@@ -2,7 +2,8 @@ import asyncio
 import logging
 import uuid
 
-from .dialplan import Router
+from . import utils
+from .dialplan import Router, ProxyRouter
 from .protocol import UDP, TCP
 from .contact import Contact
 
@@ -10,29 +11,36 @@ LOG = logging.getLogger(__name__)
 
 
 class Peer:
-    def __init__(self, peer_addr, app, connector, key, protocol, *, loop=None):
+    def __init__(self, peer_addr, app, connector, *, loop=None):
         self.peer_addr = peer_addr
+        self.registered = {}
+        self.subscriber = {}
         self._app = app
         self._connector = connector
-        self._key = key
-        self._protocol = protocol
+        self._protocol = None
         self._loop = loop
         self._dialogs = {}
+        self._connected_future = asyncio.Future(loop=loop)
+        self.closed = False
 
     def close(self):
-        for dialog in self._dialogs.values():
-            dialog._close()
+        if not self.closed:
+            self.closed = True
+            for dialog in self._dialogs.values():
+                dialog._close()
+            self._dialogs = {}
 
-        if self._protocol is not None:
-            LOG.debug('Closing connection for %s', self.peer_addr)
-            self._connector._release(self._key, self._protocol, should_close=True)
-            self._protocol = None
+            if self._protocol is not None:
+                LOG.debug('Closing connection for %s', self)
+                self._connector._release(self.peer_addr, self._protocol, should_close=True)
+                self._protocol = None
 
     def send_message(self, msg):
         self._protocol.send_message(msg, addr=self.peer_addr)
 
     def create_dialog(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
                       router=Router()):
+        LOG.debug('Creating dialog %s for peer %s', call_id, self)
         if not call_id:
             call_id = str(uuid.uuid4())
 
@@ -72,6 +80,39 @@ class Peer:
         self._dialogs[call_id] = dialog
         return dialog
 
+    async def proxy_request(self, dialog, msg):
+        proxy_dialog = self._dialogs.get(dialog.call_id)
+        if not proxy_dialog:
+            proxy_dialog = self.create_dialog(
+                from_details=dialog.from_details,
+                to_details=dialog.to_details,
+                call_id=dialog.call_id,
+                router=self._app.dialplan.get_user(dialog.to_details['uri']['user']) or ProxyRouter()
+            )
+
+        if isinstance(msg.headers['Via'], str):
+            msg.headers['Via'] = [msg.headers['Via']]
+
+        host, port = self.local_addr
+        if self._app.defaults['override_contact_host']:
+            host = self._app.defaults['override_contact_host']
+
+        msg.headers['Via'].insert(0, 'SIP/2.0/%(protocol)s {host}:{port};branch={branch}'.format(
+                host=host,
+                port=port,
+                branch=utils.gen_branch(10)
+            )
+        )
+
+        if msg.method != 'ACK':
+            return await proxy_dialog.start_proxy_transaction(msg, dialog.peer)
+        else:
+            return self.send_message(msg)
+
+    def proxy_response(self, msg):
+        msg.headers['Via'].pop(0)
+        return self.send_message(msg)
+
     def _stop_dialog(self, call_id):
         try:
             del self._dialogs[call_id]
@@ -85,8 +126,35 @@ class Peer:
         self.close()
 
     @property
+    def protocol(self):
+        return type(self._protocol)
+
+    @property
+    def connected(self):
+        return self._connected_future
+
+    def _connected(self, protocol):
+        if not self._connected_future.done():
+            self._connected_future.set_result(protocol)
+
+        if self._protocol:
+            assert self._protocol == protocol
+        else:
+            self._protocol = protocol
+
+    @property
     def local_addr(self):
-        return self._protocol.transport.get_extra_info('sockname')
+        if self._protocol:
+            return self._protocol.transport.get_extra_info('sockname')
+        else:
+            return None, None
+
+    @property
+    def contacts(self):
+        for contact, expire in self.registered.items():
+            yield contact, expire
+        for contact, expire in self.subscriber.items():
+            yield contact, expire
 
     def __repr__(self):
         return '<{0} {1[0]}:{1[1]}, local_addr={2[0]}:{2[1]}>'.format(
@@ -105,26 +173,28 @@ class BaseConnector:
     async def create_server(self, local_addr, sock):
         return await self._create_server(local_addr, sock)
 
-    async def create_peer(self, local_addr, peer_addr):
-        key = local_addr, peer_addr
+    async def create_peer(self, peer_addr):
         try:
-            return self._peers[key]
+            peer = self._peers[peer_addr]
+            await peer.connected
+            return peer
         except KeyError:
-            LOG.debug('New connection for %s', peer_addr)
-            protocol = await self._create_connection(local_addr, peer_addr)
-            return self._create_peer(peer_addr, protocol, key)
+            peer = self._create_peer(peer_addr)
+            peer._connected(await self._create_connection(peer_addr=peer_addr))
+            return peer
 
-    def _create_peer(self, peer_addr, protocol, key):
-        peer = Peer(peer_addr, self._app, self, key, protocol, loop=self._loop)
-        self._peers[key] = peer
+    def _create_peer(self, peer_addr):
+        peer = Peer(peer_addr, self._app, self, loop=self._loop)
+        self._peers[peer_addr] = peer
+        LOG.debug('New peer: %s for %s', peer, self.__class__.__name__)
         return peer
 
     async def get_peer(self, protocol, peer_addr):
         return await self._dispatch(protocol, peer_addr)
 
     def connection_lost(self, protocol):
-        key = self._make_key(protocol)
-        peer = self._peers.pop(key, None)
+        peer_addr = protocol.transport.get_extra_info('peername')
+        peer = self._peers.pop(peer_addr, None)
         if peer:
             peer.close()
 
@@ -132,15 +202,12 @@ class BaseConnector:
         for peer in self._peers.values():
             peer.close()
 
-    def _release(self, key, protocol, should_close=False):
-        _protocol = self._protocols.pop(key, None)
+    def _release(self, peer_addr, protocol, should_close=False):
+        _protocol = self._protocols.pop(peer_addr, None)
         if _protocol:
             assert _protocol == protocol
             if should_close:
                 protocol.transport.close()
-
-    async def _make_key(self, protocol):
-        raise NotImplementedError()
 
     async def _create_server(self, local_addr, sock):
         raise NotImplementedError()
@@ -153,67 +220,64 @@ class BaseConnector:
 
 
 class TCPConnector(BaseConnector):
-    def _make_key(self, protocol):
-        local_addr = protocol.transport.get_extra_info('sockname')
-        peer_addr = protocol.transport.get_extra_info('peername')
-        return local_addr, peer_addr
-
     def _create_server(self, local_addr, sock):
+        return self._loop.create_server(
+            lambda: TCP(app=self._app, loop=self._loop),
+            host=local_addr[0],
+            port=local_addr[1],
+            sock=sock)
 
-        if local_addr:
-            return self._loop.create_server(
-                lambda: TCP(app=self._app, loop=self._loop),
-                host=local_addr[0],
-                port=local_addr[1])
-        else:
-            return self._loop.create_server(
-                lambda: TCP(app=self._app, loop=self._loop),
-                sock=sock)
-
-    async def _create_connection(self, local_addr, peer_addr):
+    async def _create_connection(self, peer_addr):
         try:
-            return self._protocols[(local_addr, peer_addr)]
+            return self._protocols[peer_addr]
         except KeyError:
-            _, proto = await self._loop.create_connection(
+            transport, proto = await self._loop.create_connection(
                 lambda: TCP(app=self._app, loop=self._loop),
-                local_addr=local_addr,
                 host=peer_addr[0],
                 port=peer_addr[1])
-            self._protocols[(local_addr, peer_addr)] = proto
+            self._protocols[peer_addr] = proto
             return proto
 
     async def _dispatch(self, protocol, addr):
-        key = self._make_key(protocol)
-        if key not in self._protocols:
-            self._protocols[key] = protocol
-
-        try:
-            return self._peers[key]
-        except KeyError:
-            peer_addr = key[1]
-            LOG.debug('New connection for %s', peer_addr)
-            return self._create_peer(peer_addr, protocol, key)
+        peer_addr = protocol.transport.get_extra_info('peername')
+        if peer_addr not in self._protocols:
+            self._protocols[peer_addr] = protocol
+        return await self.create_peer(peer_addr)
 
 
 class UDPConnector(BaseConnector):
-    def _make_key(self, protocol):
-        return protocol.transport.get_extra_info('sockname')
-
     def _create_server(self, local_addr, sock):
-        return self._create_connection(local_addr, None, sock=sock)
+        return self._create_connection(local_addr=local_addr, sock=sock)
 
-    async def _create_connection(self, local_addr, peer_addr, sock=None):
+    async def _create_connection(self, peer_addr=None, local_addr=None, sock=None):
+        if not peer_addr and not local_addr and not sock:
+            raise ValueError('One of peer_addr, local_addr, sock is mandatory')
+        elif sock:
+            local_addr = sock.getsockname()
+
         try:
-            return self._protocols[local_addr]
-        except KeyError:
-            _, proto = await self._loop.create_datagram_endpoint(
-                lambda: UDP(app=self._app, loop=self._loop),
-                local_addr=local_addr)
+            if local_addr:
+                return self._protocols[local_addr]
+            else:
+                return list(self._protocols.values())[0]  # In UDP we only need one connection
+        except (KeyError, IndexError):
+            if sock:
+                _, proto = await self._loop.create_datagram_endpoint(
+                    lambda: UDP(app=self._app, loop=self._loop),
+                    sock=sock
+                )
+            elif local_addr:
+                _, proto = await self._loop.create_datagram_endpoint(
+                    lambda: UDP(app=self._app, loop=self._loop),
+                    local_addr=local_addr)
+                assert local_addr == proto.transport.get_extra_info('sockname')
+            else:
+                _, proto = await self._loop.create_datagram_endpoint(
+                    lambda: UDP(app=self._app, loop=self._loop),
+                    remote_addr=peer_addr)
+                local_addr = proto.transport.get_extra_info('sockname')
             self._protocols[local_addr] = proto
             return proto
 
     async def _dispatch(self, protocol, peer_addr):
-        local_addr = protocol.transport.get_extra_info('sockname')
-        peer = await self.create_peer(local_addr, peer_addr)
-        assert peer._protocol == protocol
-        return peer
+        return await self.create_peer(peer_addr)

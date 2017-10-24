@@ -1,5 +1,6 @@
 import random
 import string
+import ipaddress
 
 EOL = '\r\n'
 BYTES_EOL = b'\r\n'
@@ -89,3 +90,31 @@ def gen_str(length=10, letters=string.ascii_letters+string.digits):
 
 def gen_branch(length=10, letters=string.ascii_letters+string.digits):
     return "".join(("z9hG4bK", gen_str(length=length, letters=letters)))
+
+
+async def get_host_ip(host, dns):
+    try:
+        return ipaddress.ip_address(host).exploded
+    except ValueError:
+        dns = await dns.query(host, 'A')
+        return dns[0].host
+
+
+async def get_proxy_peer(dialog, msg):
+    host = await get_host_ip(msg.from_details['uri']['host'], dialog.app.dns)
+    port = msg.from_details['uri']['port']
+
+    if (host, port) == dialog.peer.peer_addr or (host, port) == dialog.contact_details:
+        for peer in dialog.app.peers:
+            if msg.method == 'NOTIFY':
+                if msg.to_details['uri']['user'] in peer.subscriber:
+                    return peer
+            elif msg.to_details['uri']['user'] in peer.registered:
+                return peer
+        else:
+            raise ValueError('No proxy peer found for {}'.format(msg))
+    else:
+        to_host = await get_host_ip(msg.to_details['uri']['host'], dialog.app.dns)
+        to_port = msg.to_details['uri']['port']
+        peer = await dialog.app.connect(remote_addr=(to_host, to_port), protocol=dialog.peer.protocol)
+    return peer

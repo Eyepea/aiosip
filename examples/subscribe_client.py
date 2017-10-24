@@ -19,46 +19,42 @@ sip_config = {
 @asyncio.coroutine
 def show_notify(dialog, request):
     print('NOTIFY:', request.payload)
-    response = aiosip.Response.from_request(
-        request=request,
-        status_code=200,
-        status_message='OK'
-    )
-    dialog.reply(response)
+    dialog.reply(request, status_code=200)
 
 
 @asyncio.coroutine
 def option(dialog, request):
-    response = aiosip.Response.from_request(
-        request=request,
-        status_code=200,
-        status_message='OK'
-    )
-    dialog.reply(response)
+    dialog.reply(request, status_code=200)
 
 
 @asyncio.coroutine
 def start(app, protocol):
 
-    connection = yield from app.connect((sip_config['local_ip'], sip_config['local_port']),
-                                        (sip_config['srv_host'], sip_config['srv_port']),
+    connection = yield from app.connect((sip_config['srv_host'], sip_config['srv_port']),
                                         protocol)
 
     register_dialog = connection.create_dialog(
-        from_uri='sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_ip'], sip_config['local_port']),
-        to_uri='sip:{}@{}:{}'.format(sip_config['user'], sip_config['srv_host'], sip_config['srv_port']),
+        from_details=aiosip.Contact.from_header(
+            'sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_ip'], sip_config['local_port'])),
+        to_details=aiosip.Contact.from_header(
+            'sip:{}@{}:{}'.format(sip_config['user'], sip_config['srv_host'], sip_config['srv_port'])),
         password=sip_config['pwd'],
     )
-    yield from register_dialog.register()
+    yield from register_dialog.request(
+        method='REGISTER',
+        headers={'Expires': 1800}
+    )
     register_dialog.close()
 
     subscribe_dialog = connection.create_dialog(
-        from_uri='sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_ip'], sip_config['local_port']),
-        to_uri='sip:666@{}:{}'.format(sip_config['srv_host'], sip_config['srv_port']),
+        from_details=aiosip.Contact.from_header(
+            'sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_ip'], sip_config['local_port'])),
+        to_details=aiosip.Contact.from_header(
+            'sip:666@{}:{}'.format(sip_config['srv_host'], sip_config['srv_port'])),
         password=sip_config['pwd']
     )
     subscribe_dialog.register_callback('NOTIFY', show_notify)
-    yield from subscribe_dialog.send(
+    yield from subscribe_dialog.request(
         method='SUBSCRIBE',
         headers={'Expires': '1800',
                  'Event': 'dialog',
