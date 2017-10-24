@@ -54,7 +54,7 @@ class Contact(MutableMapping):
 
     def __str__(self):
         r = ''
-        if 'name' in self._contact and self._contact['name']:
+        if self._contact.get('name'):  # Check if name exist and is not empty
             r += '"%s" ' % self._contact['name']
         r += self._contact['uri'].contact_repr()
         params = self._contact['params']

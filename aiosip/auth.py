@@ -17,14 +17,14 @@ class Auth(MutableMapping):
     def __str__(self):
         if self.mode == 'Digest':
             r = 'Digest '
-            l = []
+            args = []
             # import ipdb; ipdb.set_trace()
             for k, v in self._auth.items():
                 if k == 'algorithm':
-                    l.append('%s=%s' % (k, v))
+                    args.append('%s=%s' % (k, v))
                 else:
-                    l.append('%s="%s"' % (k, v))
-            r += ','.join(l)
+                    args.append('%s="%s"' % (k, v))
+            r += ','.join(args)
         else:
             raise ValueError('Authentication method not supported')
         return r
