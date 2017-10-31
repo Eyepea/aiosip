@@ -134,12 +134,14 @@ class Dialog:
             async for response in self.start_transaction(msg):
                 yield response
         elif isinstance(Response, msg) or msg.method == 'ACK':
-            yield self.peer.send_message(msg)
+            self.peer.send_message(msg)
+            return
         elif as_request:
             async for response in self.start_transaction(msg):
                 yield response
         else:
-            yield self.peer.send_message(msg)
+            self.peer.send_message(msg)
+            return
 
     def reply(self, request, status_code, status_message=None, payload=None, headers=None, contact_details=None):
         self.from_details.add_tag()
@@ -254,7 +256,7 @@ class Dialog:
             to_details=self.to_details,
             contact_details=self.contact_details,
         )
-        self.send(ack)
+        await self.send(ack)
 
     def __enter__(self):
         return self

@@ -110,14 +110,16 @@ class UnreliableTransaction(BaseTransaction):
 
         if msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
             self._handle_authenticate(msg)
+            return
         elif msg.status_code == 407:  # Proxy authentication
             self._handle_proxy_authenticate(msg)
+            return
         elif self.original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
             self.dialog.ack(msg)
-            self._incomings.put_nowait(msg)
-        else:
+
+        self._incomings.put_nowait(msg)
+        if msg.status_code >= 200:
             self._terminated = True
-            self._incomings.put_nowait(msg)
             self._incomings.put_nowait(None)
 
     async def _timer(self, timeout=0.5):
