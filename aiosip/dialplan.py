@@ -8,7 +8,8 @@ LOG = logging.getLogger(__name__)
 
 
 class Dialplan:
-    def __init__(self):
+    def __init__(self, default=None):
+        self._default = default
         self._dialplan = {}
 
     def add_user(self, user, handler):
@@ -19,7 +20,13 @@ class Dialplan:
 
     def resolve(self, message):
         user = message.from_details['uri']['user']
-        return self._dialplan.get(user, Router())
+        try:
+            return self._dialplan[user]
+        except KeyError:
+            if self._default:
+                return self._default
+            else:
+                return Router()
 
     def get_user(self, user):
         return self._dialplan.get(user)
