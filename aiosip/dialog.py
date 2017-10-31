@@ -62,7 +62,7 @@ class Dialog:
     def _receive_response(self, msg):
         try:
             transaction = self._transactions[msg.method][msg.cseq]
-            transaction.feed_message(msg)
+            transaction.incoming(msg)
         except KeyError:
             raise ValueError('This Response SIP message doesn\'t have a Request: "%s"' % msg)
 
@@ -111,31 +111,35 @@ class Dialog:
             return False
 
     async def start_transaction(self, msg):
-        transaction = UnreliableTransaction(self, original_msg=msg, future=msg.future, loop=self.app.loop)
+        transaction = UnreliableTransaction(self, original_msg=msg, loop=self.app.loop)
         self._transactions[msg.method][self.cseq] = transaction
-        return await transaction.start()
+        async for response in transaction.start():
+            yield response
 
     async def start_proxy_transaction(self, msg, peer):
         if msg.cseq not in self._transactions[msg.method]:
-            transaction = ProxyTransaction(dialog=self, original_msg=msg, future=msg.future, loop=self.app.loop,
-                                           proxy_peer=peer)
+            transaction = ProxyTransaction(dialog=self, original_msg=msg, loop=self.app.loop, proxy_peer=peer)
             self._transactions[msg.method][msg.cseq] = transaction
-            return await transaction.start()
+            async for response in transaction.start():
+                yield response
         else:
             LOG.debug('Message already transmitted: %s %s, %s', msg.cseq, msg.method, msg.headers['Call-ID'])
-        return None
+            self._transactions[msg.method][msg.cseq].retransmit()
+        return
 
     async def send(self, msg, as_request=False):
         # This allow to send string as SIP message. msg only need an encode method.
 
         if issubclass(Request, msg) and msg.method != 'ACK':
-            return await self.start_transaction(msg)
+            async for response in self.start_transaction(msg):
+                yield response
         elif isinstance(Response, msg) or msg.method == 'ACK':
-            return self.peer.send_message(msg)
+            yield self.peer.send_message(msg)
         elif as_request:
-            return await self.start_transaction(msg)
+            async for response in self.start_transaction(msg):
+                yield response
         else:
-            return self.peer.send_message(msg)
+            yield self.peer.send_message(msg)
 
     def reply(self, request, status_code, status_message=None, payload=None, headers=None, contact_details=None):
         self.from_details.add_tag()
@@ -190,7 +194,8 @@ class Dialog:
             payload=payload,
             future=future
         )
-        return await self.start_transaction(msg)
+        async for response in self.start_transaction(msg):
+            yield response
 
     def close(self):
         self.peer._stop_dialog(self.call_id)
@@ -200,9 +205,7 @@ class Dialog:
         LOG.debug('Closing dialog: %s', self.call_id)
         for transactions in self._transactions.values():
             for transaction in transactions.values():
-                # transaction.cancel()
-                if not transaction.future.done():
-                    transaction.future.set_exception(ConnectionAbortedError)
+                transaction.close()
         for task in self._tasks:
             task.cancel()
 
@@ -241,6 +244,17 @@ class Dialog:
                                     headers=headers,
                                     payload=sdp)
         return send_msg_future
+
+    async def ack(self, msg):
+
+        ack = Request(
+            method='ACK',
+            cseq=msg.cseq,
+            from_details=self.from_details,
+            to_details=self.to_details,
+            contact_details=self.contact_details,
+        )
+        self.send(ack)
 
     def __enter__(self):
         return self

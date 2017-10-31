@@ -45,18 +45,21 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop):
         to_details=aiosip.Contact.from_header(to_details),
     )
 
-    response = await asyncio.wait_for(subscribe_dialog.request(
-                     method='SUBSCRIBE',
-                     headers={'Expires': '1800',
-                              'Event': 'dialog',
-                              'Accept': 'application/dialog-info+xml'}
-                     ), timeout=2)
+    responses = list()
+    headers = {
+        'Expires': '1800',
+        'Event': 'dialog',
+        'Accept': 'application/dialog-info+xml'
+    }
+    async for response in subscribe_dialog.request(method='SUBSCRIBE', headers=headers):
+        responses.append(response)
 
     received_request_server = await callback_complete
     received_request_proxy = await callback_complete_proxy
 
-    assert response.status_code == 200
-    assert response.status_message == 'OK'
+    assert len(responses) == 1
+    assert responses[0].status_code == 200
+    assert responses[0].status_message == 'OK'
     assert received_request_server.method == 'SUBSCRIBE'
     assert received_request_server.payload == received_request_proxy.payload
     assert received_request_server.headers == received_request_proxy.headers
@@ -73,7 +76,8 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop):
         assert len(dialog.peer.subscriber) == 1
         dialog.reply(request, status_code=200)
         await asyncio.sleep(0.2)
-        await dialog.request(method='NOTIFY', payload='1')
+        async for _ in dialog.request(method='NOTIFY', payload='1'):  # noqa: F841
+            pass
 
     async def notify(dialog, request):
         callback_complete.set_result(request)
@@ -118,24 +122,27 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop):
         router=client_router
     )
 
-    response = await asyncio.wait_for(subscribe_dialog.request(
-                    method='SUBSCRIBE',
-                    headers={'Expires': '1800',
-                             'Event': 'dialog',
-                             'Accept': 'application/dialog-info+xml'}
-                    ), timeout=2)
+    responses = list()
+    headers = {
+        'Expires': '1800',
+        'Event': 'dialog',
+        'Accept': 'application/dialog-info+xml'
+    }
+    async for response in subscribe_dialog.request(method='SUBSCRIBE', headers=headers):
+        responses.append(response)
 
     received_notify_server = await callback_complete
-    received_noitfy_proxy = await callback_complete_proxy
+    received_notify_proxy = await callback_complete_proxy
 
-    assert response.status_code == 200
-    assert response.status_message == 'OK'
+    assert len(responses) == 1
+    assert responses[0].status_code == 200
+    assert responses[0].status_message == 'OK'
 
     assert received_notify_server.method == 'NOTIFY'
     assert received_notify_server.payload == '1'
 
-    assert received_notify_server.payload == received_noitfy_proxy.payload
-    assert received_notify_server.headers == received_noitfy_proxy.headers
+    assert received_notify_server.payload == received_notify_proxy.payload
+    assert received_notify_server.headers == received_notify_proxy.headers
 
     server_app.close()
     proxy_app.close()

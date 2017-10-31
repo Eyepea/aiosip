@@ -65,6 +65,6 @@ class ProxyRouter(Router):
 
     async def proxy(self, dialog, msg):
         peer = await utils.get_proxy_peer(dialog, msg)
-        proxy_response = await peer.proxy_request(dialog, msg)
-        if proxy_response:
-            dialog.peer.proxy_response(proxy_response)
+        async for proxy_response in peer.proxy_request(dialog, msg):
+            if proxy_response:
+                dialog.peer.proxy_response(proxy_response)

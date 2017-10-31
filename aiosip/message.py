@@ -1,5 +1,4 @@
 import logging
-import asyncio
 import re
 import uuid
 
@@ -119,11 +118,19 @@ class Message:
             self._cseq = int(self.headers['CSeq'].split(' ')[0])
         return self._cseq
 
+    @cseq.setter
+    def cseq(self, cseq):
+        self._cseq = int(cseq)
+
     @property
     def method(self):
         if not hasattr(self, '_method'):
             self._method = self.headers['CSeq'].split(' ')[1]
         return self._method
+
+    @method.setter
+    def method(self, method):
+        self._method = method
 
     def __str__(self):
         if self._payload:
@@ -152,6 +159,11 @@ class Message:
 
         if hasattr(self, '_contact_details'):
             self.headers['Contact'] = str(self.contact_details)
+
+        if hasattr(self, '_cseq'):
+            self.headers['CSeq'] = '%s %s' % (self.cseq, self.method)
+        elif hasattr(self, '_method'):
+            self.headers['CSeq'] = '%s %s' % (self.cseq, self.method)
 
         self.headers['Content-Length'] = str(len(self._raw_payload))
         if 'Max-Forwards' not in self.headers:
@@ -243,8 +255,6 @@ class Request(Message):
 
         self._method = method
         self._cseq = cseq
-        self.headers['CSeq'] = '%s %s' % (self._cseq, self._method)
-        self.future = future or asyncio.Future()
 
         if not first_line:
             self._first_line = FIRST_LINE_PATTERN['request']['str'].format(
@@ -316,9 +326,6 @@ class Response(Message):
             self._method = method
         elif 'CSeq' not in self.headers:
             raise ValueError('"CSeq" header or method is required')
-
-        if 'CSeq' not in self.headers:
-            self.headers['CSeq'] = '%s %s' % (self._cseq, self._method)
 
         self._status_code = status_code
         self._status_message = status_message

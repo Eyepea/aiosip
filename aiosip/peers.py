@@ -105,9 +105,11 @@ class Peer:
         )
 
         if msg.method != 'ACK':
-            return await proxy_dialog.start_proxy_transaction(msg, dialog.peer)
+            async for response in proxy_dialog.start_proxy_transaction(msg, dialog.peer):
+                yield response
         else:
-            return self.send_message(msg)
+            self.send_message(msg)
+            return
 
     def proxy_response(self, msg):
         msg.headers['Via'].pop(0)
