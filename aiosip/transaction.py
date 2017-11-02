@@ -21,7 +21,7 @@ class BaseTransaction:
     async def start(self):
         raise NotImplementedError
 
-    def incoming(self, msg):
+    def _incoming(self, msg):
         raise NotImplementedError
 
     async def _start(self):
@@ -66,7 +66,7 @@ class BaseTransaction:
             password=self.dialog.password)
         )
 
-        self.dialog._transactions[self.original_msg.method][self.original_msg.cseq] = self
+        self.dialog.transactions[self.original_msg.method][self.original_msg.cseq] = self
         self.dialog.peer.send_message(self.original_msg)
 
     def _handle_proxy_authenticate(self, msg):
@@ -101,7 +101,7 @@ class UnreliableTransaction(BaseTransaction):
         async for response in self._start():
             yield response
 
-    def incoming(self, msg):
+    def _incoming(self, msg):
         if self._terminated:
             return
 
@@ -159,7 +159,7 @@ class ProxyTransaction(BaseTransaction):
         async for response in self._start():
             yield response
 
-    def incoming(self, msg):
+    def _incoming(self, msg):
         self._incomings.put_nowait(msg)
 
     def retransmit(self):

@@ -84,7 +84,7 @@ class Application(MutableMapping):
         server = await connector.create_server(local_addr, sock)
         return server
 
-    async def dispatch(self, protocol, msg, addr):
+    async def _dispatch(self, protocol, msg, addr):
         connector = self._connectors[type(protocol)]
         peer = await connector.get_peer(protocol, addr)
         key = msg.headers['Call-ID']

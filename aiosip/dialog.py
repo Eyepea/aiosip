@@ -11,8 +11,6 @@ from .dialplan import Router
 from .transaction import UnreliableTransaction, ProxyTransaction
 from .auth import Auth
 
-from functools import partial
-
 
 LOG = logging.getLogger(__name__)
 
@@ -39,16 +37,10 @@ class Dialog:
         self.password = password
         self.cseq = cseq
         self.router = router or Router()
-        self._transactions = defaultdict(dict)
+        self.transactions = defaultdict(dict)
         self.callbacks = defaultdict(list)
         self._tasks = list()
         self._nonce = None
-
-    def register_callback(self, method, callback, *args, **kwargs):
-        self.router[method.lower()] = partial(callback, *args, **kwargs)
-
-    def unregister_callback(self, method):
-        del self.router[method.lower()]
 
     async def receive_message(self, msg):
         if self.cseq < msg.cseq:
@@ -61,8 +53,8 @@ class Dialog:
 
     def _receive_response(self, msg):
         try:
-            transaction = self._transactions[msg.method][msg.cseq]
-            transaction.incoming(msg)
+            transaction = self.transactions[msg.method][msg.cseq]
+            transaction._incoming(msg)
         except KeyError:
             raise ValueError('This Response SIP message doesn\'t have a Request: "%s"' % msg)
 
@@ -112,19 +104,19 @@ class Dialog:
 
     async def start_transaction(self, msg):
         transaction = UnreliableTransaction(self, original_msg=msg, loop=self.app.loop)
-        self._transactions[msg.method][self.cseq] = transaction
+        self.transactions[msg.method][msg.cseq] = transaction
         async for response in transaction.start():
             yield response
 
     async def start_proxy_transaction(self, msg, peer):
-        if msg.cseq not in self._transactions[msg.method]:
+        if msg.cseq not in self.transactions[msg.method]:
             transaction = ProxyTransaction(dialog=self, original_msg=msg, loop=self.app.loop, proxy_peer=peer)
-            self._transactions[msg.method][msg.cseq] = transaction
+            self.transactions[msg.method][msg.cseq] = transaction
             async for response in transaction.start():
                 yield response
         else:
             LOG.debug('Message already transmitted: %s %s, %s', msg.cseq, msg.method, msg.headers['Call-ID'])
-            self._transactions[msg.method][msg.cseq].retransmit()
+            self.transactions[msg.method][msg.cseq].retransmit()
         return
 
     async def send(self, msg, as_request=False):
@@ -205,14 +197,14 @@ class Dialog:
 
     def _close(self):
         LOG.debug('Closing dialog: %s', self.call_id)
-        for transactions in self._transactions.values():
+        for transactions in self.transactions.values():
             for transaction in transactions.values():
                 transaction.close()
         for task in self._tasks:
             task.cancel()
 
     def _connection_lost(self):
-        for transactions in self._transactions.values():
+        for transactions in self.transactions.values():
             for transaction in transactions.values():
                 if not transaction.future.done():
                     transaction.future.set_exception(ConnectionError)
