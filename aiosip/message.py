@@ -241,7 +241,6 @@ class Request(Message):
                  contact_details=None,
                  headers=None,
                  payload=None,
-                 future=None,
                  first_line=None
                  ):
 
@@ -253,7 +252,7 @@ class Request(Message):
             contact_details=contact_details
         )
 
-        self._method = method
+        self._method = method.upper()
         self._cseq = cseq
 
         if not first_line:

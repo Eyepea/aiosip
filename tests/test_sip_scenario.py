@@ -8,16 +8,15 @@ async def test_notify(test_server, protocol, loop, from_details, to_details):
 
     async def subscribe(dialog, request):
         assert len(dialog.peer.subscriber) == 1
-        dialog.reply(request, status_code=200)
+        await dialog.reply(request, status_code=200)
         await asyncio.sleep(0.1)
 
         for i in notify_list:
-            async for rep in dialog.request(method='NOTIFY', payload=str(i)):
-                assert rep.status_code == 200
+            await dialog.notify(payload=str(i))
 
     async def notify(dialog, request):
         received_notify_futures[int(request.payload)].set_result(request)
-        dialog.reply(request, status_code=200)
+        await dialog.reply(request, status_code=200)
 
     app = aiosip.Application(loop=loop)
     server_app = aiosip.Application(loop=loop)
@@ -38,18 +37,14 @@ async def test_notify(test_server, protocol, loop, from_details, to_details):
         router=client_router
     )
 
-    responses = list()
-    headers = {'Expires': '1800', 'Event': 'dialog', 'Accept': 'application/dialog-info+xml'}
-    async for response in subscribe_dialog.request(method='SUBSCRIBE', headers=headers):
-        responses.append(response)
+    response = await subscribe_dialog.subscribe(expires=1800)
 
     done, pending = await asyncio.wait(received_notify_futures, return_when=asyncio.ALL_COMPLETED, timeout=1)
     received_notify = [f.result() for f in done]
     assert len(pending) == 0
 
-    assert len(responses) == 1
-    assert responses[0].status_code == 200
-    assert responses[0].status_message == 'OK'
+    assert response.status_code == 200
+    assert response.status_message == 'OK'
     assert all((r.method == 'NOTIFY' for r in received_notify))
 
     server_app.close()
@@ -62,10 +57,10 @@ async def test_authentification(test_server, protocol, loop, from_details, to_de
     async def subscribe(dialog, request):
         if dialog.validate_auth(request, password):
             received_request.append(request)
-            dialog.reply(request, 200)
+            await dialog.reply(request, 200)
         else:
             received_request.append(request)
-            dialog.unauthorized(request)
+            await dialog.unauthorized(request)
 
     app = aiosip.Application(loop=loop)
     server_app = aiosip.Application(loop=loop)
@@ -83,15 +78,50 @@ async def test_authentification(test_server, protocol, loop, from_details, to_de
         password=password
     )
 
-    responses = list()
-    headers = {'Expires': '1800', 'Event': 'dialog', 'Accept': 'application/dialog-info+xml'}
-    async for response in subscribe_dialog.request(method='SUBSCRIBE', headers=headers):
-        responses.append(response)
+    response = await subscribe_dialog.subscribe(expires=1800)
 
-    assert len(responses) == 1
     assert len(received_request) == 2
     assert 'Authorization' in received_request[1].headers
-    assert responses[0].status_code == 200
-    assert responses[0].status_message == 'OK'
+    assert response.status_code == 200
+    assert response.status_message == 'OK'
 
     server_app.close()
+
+
+async def test_invite(test_server, protocol, loop, from_details, to_details):
+    ack_future = loop.create_future()
+
+    async def invite(dialog, request):
+        await dialog.reply(request, 100)
+        await asyncio.sleep(0.1)
+        await dialog.reply(request, 180)
+        await asyncio.sleep(0.1)
+        ack = await dialog.reply(request, 200, wait_for_ack=True)
+        ack_future.set_result(ack)
+
+    app = aiosip.Application(loop=loop)
+    server_app = aiosip.Application(loop=loop)
+    server_app.dialplan.add_user('pytest', {'INVITE': invite})
+    server = await test_server(server_app)
+
+    peer = await app.connect(
+        protocol=protocol,
+        remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
+    )
+
+    invite_dialog = peer.create_dialog(
+        from_details=aiosip.Contact.from_header(from_details),
+        to_details=aiosip.Contact.from_header(to_details),
+    )
+
+    responses = list()
+    async for msg in invite_dialog.invite():
+        responses.append(msg)
+
+    ack = await ack_future
+
+    assert len(responses) == 3
+    assert responses[0].status_code == 100
+    assert responses[1].status_code == 180
+    assert responses[2].status_code == 200
+    assert ack.method == 'ACK'

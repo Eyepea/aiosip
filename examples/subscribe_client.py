@@ -18,11 +18,11 @@ sip_config = {
 
 async def show_notify(dialog, request):
     print('NOTIFY:', request.payload)
-    dialog.reply(request, status_code=200)
+    await dialog.reply(request, status_code=200)
 
 
 async def option(dialog, request):
-    dialog.reply(request, status_code=200)
+    await dialog.reply(request, status_code=200)
 
 
 async def start(app, protocol):
@@ -37,8 +37,7 @@ async def start(app, protocol):
         password=sip_config['pwd'],
     )
 
-    async for response in register_dialog.request(method='REGISTER', headers={'Expires': 1800}):
-        assert response.status_code == 200
+    await register_dialog.register()
 
     subscribe_dialog = peer.create_dialog(
         from_details=aiosip.Contact.from_header(
@@ -49,15 +48,9 @@ async def start(app, protocol):
     )
 
     subscribe_dialog.router['notify'] = show_notify
-    headers = {'Expires': '1800', 'Event': 'dialog', 'Accept': 'application/dialog-info+xml'}
-    async for response in subscribe_dialog.request(method='SUBSCRIBE', headers=headers):
-        assert response.status_code == 200
-
+    await subscribe_dialog.subscribe()
     await asyncio.sleep(20)
-
-    headers = {'Expires': '0', 'Event': 'dialog', 'Accept': 'application/dialog-info+xml'}
-    async for response in subscribe_dialog.request(method='SUBSCRIBE', headers=headers):
-        assert response.status_code == 200
+    await subscribe_dialog.subscribe(expires=0)
 
 
 def main():

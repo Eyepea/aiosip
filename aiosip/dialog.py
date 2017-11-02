@@ -8,7 +8,7 @@ from multidict import CIMultiDict
 from . import utils
 from .message import Request, Response
 from .dialplan import Router
-from .transaction import UnreliableTransaction, ProxyTransaction
+from .transaction import UnreliableTransaction, ProxyTransaction, QueueTransaction
 from .auth import Auth
 
 
@@ -46,7 +46,7 @@ class Dialog:
         if self.cseq < msg.cseq:
             self.cseq = msg.cseq
 
-        if isinstance(msg, Response):
+        if isinstance(msg, Response) or msg.method == 'ACK':
             return self._receive_response(msg)
         else:
             return await self._receive_request(msg)
@@ -56,7 +56,7 @@ class Dialog:
             transaction = self.transactions[msg.method][msg.cseq]
             transaction._incoming(msg)
         except KeyError:
-            raise ValueError('This Response SIP message doesn\'t have a Request: "%s"' % msg)
+            raise RuntimeError('This Response SIP message doesn\'t have a Request: "%s"' % msg)
 
     async def _receive_request(self, msg):
 
@@ -77,9 +77,9 @@ class Dialog:
                 pass
             except Exception as e:
                 LOG.exception(e)
-                self.reply(msg, status_code=500)
+                await self.reply(msg, status_code=500)
         else:
-            self.reply(msg, status_code=501)
+            await self.reply(msg, status_code=501)
 
     async def _call_route(self, route, msg):
         for middleware_factory in reversed(self.app._middleware):
@@ -87,11 +87,11 @@ class Dialog:
 
         await route(self, msg)
 
-    def unauthorized(self, msg):
+    async def unauthorized(self, msg):
         self._nonce = utils.gen_str(10)
         headers = CIMultiDict()
         headers['WWW-Authenticate'] = str(Auth(nonce=self._nonce, algorithm='md5', realm='sip'))
-        self.reply(msg, status_code=401, headers=headers)
+        await self.reply(msg, status_code=401, headers=headers)
 
     def validate_auth(self, msg, password):
         if msg.auth and msg.auth.validate(password, self._nonce):
@@ -102,8 +102,13 @@ class Dialog:
         else:
             return False
 
-    async def start_transaction(self, msg):
+    async def start_unreliable_transaction(self, msg, method=None):
         transaction = UnreliableTransaction(self, original_msg=msg, loop=self.app.loop)
+        self.transactions[method or msg.method][msg.cseq] = transaction
+        return await transaction.start()
+
+    async def start_queue_transaction(self, msg):
+        transaction = QueueTransaction(self, original_msg=msg, loop=self.app.loop)
         self.transactions[msg.method][msg.cseq] = transaction
         async for response in transaction.start():
             yield response
@@ -123,19 +128,26 @@ class Dialog:
         # This allow to send string as SIP message. msg only need an encode method.
 
         if issubclass(Request, msg) and msg.method != 'ACK':
-            async for response in self.start_transaction(msg):
-                yield response
+            return await self.start_unreliable_transaction(msg)
         elif isinstance(Response, msg) or msg.method == 'ACK':
             self.peer.send_message(msg)
             return
         elif as_request:
-            async for response in self.start_transaction(msg):
-                yield response
+            return await self.start_unreliable_transaction(msg)
         else:
             self.peer.send_message(msg)
             return
 
-    def reply(self, request, status_code, status_message=None, payload=None, headers=None, contact_details=None):
+    async def reply(self, request, status_code, status_message=None, payload=None, headers=None, contact_details=None,
+                    wait_for_ack=False):
+        msg = self._prepare_response(request, status_code, status_message, payload, headers, contact_details)
+        if wait_for_ack:
+            return await self.start_unreliable_transaction(msg, method='ACK')
+        else:
+            self.peer.send_message(msg)
+
+    def _prepare_response(self, request, status_code, status_message=None, payload=None, headers=None,
+                          contact_details=None):
         self.from_details.add_tag()
 
         if contact_details:
@@ -161,11 +173,27 @@ class Dialog:
             cseq=request.cseq,
             method=request.method
         )
-        self.peer.send_message(msg)
+        return msg
 
-    async def request(self, method, contact_details=None, headers=None, payload=None, future=None):
+    async def request(self, method, contact_details=None, headers=None, payload=None):
+        msg = self._prepare_request(method, contact_details, headers, payload)
+        if msg.method != 'ACK':
+            return await self.start_unreliable_transaction(msg)
+        else:
+            self.peer.send_message(msg)
+
+    async def request_all(self, method, contact_details=None, headers=None, payload=None):
+        msg = self._prepare_request(method, contact_details, headers, payload)
+        if msg.method != 'ACK':
+            async for response in self.start_queue_transaction(msg):
+                yield response
+        else:
+            self.peer.send_message(msg)
+
+    def _prepare_request(self, method, contact_details=None, headers=None, payload=None, cseq=None):
         self.from_details.add_tag()
-        self.cseq += 1
+        if not cseq:
+            self.cseq += 1
 
         if contact_details:
             self.contact_details = contact_details
@@ -180,16 +208,14 @@ class Dialog:
 
         msg = Request(
             method=method,
-            cseq=self.cseq,
+            cseq=cseq or self.cseq,
             from_details=self.from_details,
             to_details=self.to_details,
             contact_details=self.contact_details,
             headers=headers,
             payload=payload,
-            future=future
         )
-        async for response in self.start_transaction(msg):
-            yield response
+        return msg
 
     def close(self):
         self.peer._stop_dialog(self.call_id)
@@ -211,7 +237,7 @@ class Dialog:
         for task in self._tasks:
             task.cancel()
 
-    def register(self, headers=None, attempts=3, expires=360):
+    async def register(self, headers=None, expires=1800, *args, **kwargs):
         if not headers:
             headers = CIMultiDict()
 
@@ -224,31 +250,33 @@ class Dialog:
         if 'Allow-Events' not in headers:
             headers['Allow-Events'] = 'talk,hold,conference,refer,check-sync'
 
-        send_msg_future = self.send(method='REGISTER',
-                                    headers=headers,
-                                    payload='')
-        return send_msg_future
+        return await self.request('REGISTER', headers=headers, *args, **kwargs)
 
-    @asyncio.coroutine
-    def invite(self, headers=None, sdp=None, attempts=3):
+    async def subscribe(self, headers=None, expires=1800, *args, **kwargs):
         if not headers:
             headers = CIMultiDict()
 
-        send_msg_future = self.send(method='INVITE',
-                                    headers=headers,
-                                    payload=sdp)
-        return send_msg_future
+        if 'Event' not in headers:
+            headers['Event'] = 'dialog'
 
-    async def ack(self, msg):
+        if 'Accept' not in headers:
+            headers['Accept'] = 'application/dialog-info+xml'
 
-        ack = Request(
-            method='ACK',
-            cseq=msg.cseq,
-            from_details=self.from_details,
-            to_details=self.to_details,
-            contact_details=self.contact_details,
-        )
-        await self.send(ack)
+        if 'Expires' not in headers:
+            headers['Expires'] = int(expires)
+
+        return await self.request('SUBSCRIBE', headers=headers, *args, **kwargs)
+
+    async def notify(self, *args, **kwargs):
+        return await self.request('NOTIFY', *args, **kwargs)
+
+    async def invite(self, *args, **kwargs):
+        async for response in self.request_all('INVITE', *args, **kwargs):
+            yield response
+
+    def ack(self, msg, *args, **kwargs):
+        ack = self._prepare_request('ACK', cseq=msg.cseq, *args, **kwargs)
+        self.peer.send_message(ack)
 
     def __enter__(self):
         return self

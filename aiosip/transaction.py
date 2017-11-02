@@ -15,28 +15,49 @@ class BaseTransaction:
         self.original_msg = original_msg
         self.loop = loop or asyncio.get_event_loop()
         self.attempts = attempts
-        self._incomings = asyncio.Queue()
-        self._transmission = 0
+        self.retransmission = None
 
     async def start(self):
         raise NotImplementedError
 
     def _incoming(self, msg):
+        if self.retransmission:
+            self.retransmission.cancel()
+            self.retransmission = None
+
+        if msg.method == 'ACK':
+            return True
+        if msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
+            self._handle_authenticate(msg)
+            return False
+        elif msg.status_code == 407:  # Proxy authentication
+            self._handle_proxy_authenticate(msg)
+            return False
+        elif self.original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
+            self.dialog.ack(msg)
+        return True
+
+    def _error(self, error):
         raise NotImplementedError
 
-    async def _start(self):
-        self._transmission, received = 1, 0
-        while self._transmission != received:
-            response = await self._incomings.get()
-            if isinstance(response, BaseException):
-                raise response
-            elif response is None:
-                return
-            elif 100 <= response.status_code < 200:
-                yield response
-            else:
-                received += 1
-                yield response
+    def _result(self, msg):
+        raise NotImplementedError
+
+    def close(self):
+        LOG.debug('Closing %s', self)
+
+    async def _timer(self, timeout=0.5):
+        max_timeout = timeout * 64
+        while timeout <= max_timeout:
+            self.dialog.peer.send_message(self.original_msg)
+            await asyncio.sleep(timeout)
+            timeout *= 2
+
+        self._error(asyncio.TimeoutError('SIP timer expired for {cseq}, {method}, {call_id}'.format(
+            cseq=self.original_msg.cseq,
+            method=self.original_msg.method,
+            call_id=self.original_msg.headers['Call-ID']
+        )))
 
     def _handle_authenticate(self, msg):
         if self.dialog.password is None:
@@ -45,13 +66,13 @@ class BaseTransaction:
         if msg.method.upper() == 'REGISTER':
             self.attempts -= 1
             if self.attempts < 1:
-                self._incomings.put_nowait(AuthentificationFailed('Too many unauthorized attempts!'))
+                self._error(AuthentificationFailed('Too many unauthorized attempts!'))
                 return
             username = msg.to_details['uri']['user']
         elif msg.method.upper() == 'INVITE':
             self.attempts -= 1
             if self.attempts < 1:
-                self._incomings.put_nowait(AuthentificationFailed('Too many unauthorized attempts!'))
+                self._error(AuthentificationFailed('Too many unauthorized attempts!'))
                 return
             username = msg.from_details['uri']['user']
         else:
@@ -84,57 +105,77 @@ class BaseTransaction:
                                  payload=self.original_msg.payload,
                                  future=self.futrue)
 
-    def close(self):
-        LOG.debug('Closing %s', self)
-        self._incomings.put_nowait(None)
 
-
-class UnreliableTransaction(BaseTransaction):
+class QueueTransaction(BaseTransaction):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.retransmission = None
-        self._terminated = False
+        self._incomings = asyncio.Queue()
 
     async def start(self):
         self.retransmission = asyncio.ensure_future(self._timer())
-        async for response in self._start():
-            yield response
+        while True:
+            response = await self._incomings.get()
+            if isinstance(response, BaseException):
+                raise response
+            elif response is None:
+                return
+            elif 100 <= response.status_code < 200:
+                yield response
+            else:
+                yield response
+                return
 
     def _incoming(self, msg):
-        if self._terminated:
-            return
+        if super()._incoming(msg):
+            self._incomings.put_nowait(msg)
 
-        if self.retransmission:
-            self.retransmission.cancel()
-            self.retransmission = None
+    def _error(self, error):
+        self._incomings.put_nowait(error)
 
-        if msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
-            self._handle_authenticate(msg)
-            return
-        elif msg.status_code == 407:  # Proxy authentication
-            self._handle_proxy_authenticate(msg)
-            return
-        elif self.original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
-            self.dialog.ack(msg)
-
+    def _result(self, msg):
         self._incomings.put_nowait(msg)
-        if msg.status_code >= 200:
-            self._terminated = True
-            self._incomings.put_nowait(None)
 
-    async def _timer(self, timeout=0.5):
-        max_timeout = timeout * 64
-        while timeout <= max_timeout:
-            self.dialog.peer.send_message(self.original_msg)
-            await asyncio.sleep(timeout)
-            timeout *= 2
+    def close(self):
+        super().close()
+        self._incomings.put_nowait(None)
 
-        self._incomings.put_nowait(asyncio.TimeoutError(
-            'SIP timer expired for %s, %s, %s',
-            self.original_msg.cseq, self.original_msg.method, self.original_msg.headers['Call-ID'])
-        )
 
+class FutureTransaction(BaseTransaction):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._future = self.loop.create_future()
+
+    async def start(self):
+        self.retransmission = asyncio.ensure_future(self._timer())
+        return await self._future
+
+    def _incoming(self, msg):
+        if super()._incoming(msg):
+            if msg.method == 'ACK':
+                self._result(msg)
+            elif 100 <= msg.status_code < 200:
+                pass
+            elif self._future.done():
+                LOG.debug('Received response retransmission for %s, %s, %s',
+                          msg.cseq, msg.method, msg.headers['Call-ID'])
+            else:
+                self._result(msg)
+
+    def _error(self, error):
+        self._future.set_exception(error)
+
+    def _result(self, msg):
+        self._future.set_result(msg)
+
+    def close(self):
+        super().close()
+        self._future.cancel()
+
+
+class UnreliableTransaction(FutureTransaction):
+    pass
     # def cancel(self):
     #     if self.retransmission:
     #         self.retransmission.cancel()
@@ -149,15 +190,26 @@ class UnreliableTransaction(BaseTransaction):
     #     # self.dialog.reply(method='CANCEL', headers=hdrs)
 
 
-class ProxyTransaction(BaseTransaction):
+class ProxyTransaction(QueueTransaction):
     def __init__(self, proxy_peer, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.proxy_peer = proxy_peer
+        self._transmission = 0
 
     async def start(self):
         self.dialog.peer.send_message(self.original_msg)
-        async for response in self._start():
-            yield response
+        self._transmission, received = 1, 0
+        while self._transmission != received:
+            response = await self._incomings.get()
+            if isinstance(response, BaseException):
+                raise response
+            elif response is None:
+                return
+            elif 100 <= response.status_code < 200:
+                yield response
+            else:
+                received += 1
+                yield response
 
     def _incoming(self, msg):
         self._incomings.put_nowait(msg)

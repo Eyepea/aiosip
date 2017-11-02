@@ -17,18 +17,17 @@ sip_config = {
 
 async def notify(dialog):
     for idx in range(1, 4):
-        async for response in dialog.request('NOTIFY', payload=str(idx)):
-            assert response.status_code == 200
+        await dialog.notify(payload=str(idx))
         await asyncio.sleep(1)
 
 
 async def on_register(dialog, message):
-    dialog.reply(message, status_code=200)
+    await dialog.reply(message, status_code=200)
     print('Registration successful')
 
 
 async def on_subscribe(dialog, message):
-    dialog.reply(message, status_code=200)
+    await dialog.reply(message, status_code=200)
 
     if int(message.headers['Expires']):
         print('Subscription started!')
