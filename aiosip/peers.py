@@ -40,9 +40,9 @@ class Peer:
 
     def create_dialog(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
                       router=Router()):
-        LOG.debug('Creating dialog %s for peer %s', call_id, self)
         if not call_id:
             call_id = str(uuid.uuid4())
+        LOG.debug('Creating dialog %s for peer %s', call_id, self)
 
         if not contact_details:
             host, port = self.local_addr

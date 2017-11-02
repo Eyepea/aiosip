@@ -96,3 +96,21 @@ def test_proxy(protocol, loop):
             yield from servers.pop().close()
 
     loop.run_until_complete(finalize())
+
+
+@pytest.fixture
+def from_details(request):
+    return 'sip:{user}@{host}:{port}'.format(
+        user='pytest',
+        host='127.0.0.1',
+        port=7000
+    )
+
+
+@pytest.fixture
+def to_details(request):
+    return 'sip:{user}@{host}:{port}'.format(
+        user='666',
+        host='127.0.0.1',
+        port=6000
+    )

@@ -66,7 +66,8 @@ class BaseTransaction:
             password=self.dialog.password)
         )
 
-        self.dialog.send(self.original_msg)
+        self.dialog._transactions[self.original_msg.method][self.original_msg.cseq] = self
+        self.dialog.peer.send_message(self.original_msg)
 
     def _handle_proxy_authenticate(self, msg):
         self._handle_proxy_authenticate(msg)
