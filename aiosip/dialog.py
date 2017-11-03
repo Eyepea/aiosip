@@ -113,9 +113,9 @@ class Dialog:
         async for response in transaction.start():
             yield response
 
-    async def start_proxy_transaction(self, msg, peer):
+    async def start_proxy_transaction(self, msg, timeout=5):
         if msg.cseq not in self.transactions[msg.method]:
-            transaction = ProxyTransaction(dialog=self, original_msg=msg, loop=self.app.loop, proxy_peer=peer)
+            transaction = ProxyTransaction(dialog=self, original_msg=msg, loop=self.app.loop, timeout=timeout)
             self.transactions[msg.method][msg.cseq] = transaction
             async for response in transaction.start():
                 yield response
@@ -123,6 +123,17 @@ class Dialog:
             LOG.debug('Message already transmitted: %s %s, %s', msg.cseq, msg.method, msg.headers['Call-ID'])
             self.transactions[msg.method][msg.cseq].retransmit()
         return
+
+    def end_transaction(self, transaction):
+        to_delete = list()
+        for method, values in self.transactions.items():
+            for cseq, t in values.items():
+                if transaction is t:
+                    transaction.close()
+                    to_delete.append((method, cseq))
+
+        for item in to_delete:
+            del self.transactions[item[0]][item[1]]
 
     async def send(self, msg, as_request=False):
         # This allow to send string as SIP message. msg only need an encode method.
@@ -222,7 +233,7 @@ class Dialog:
         self._close()
 
     def _close(self):
-        LOG.debug('Closing dialog: %s', self.call_id)
+        LOG.debug('Closing: %s', self)
         for transactions in self.transactions.values():
             for transaction in transactions.values():
                 transaction.close()
@@ -232,8 +243,7 @@ class Dialog:
     def _connection_lost(self):
         for transactions in self.transactions.values():
             for transaction in transactions.values():
-                if not transaction.future.done():
-                    transaction.future.set_exception(ConnectionError)
+                transaction._error(ConnectionError)
         for task in self._tasks:
             task.cancel()
 
@@ -277,6 +287,10 @@ class Dialog:
     def ack(self, msg, *args, **kwargs):
         ack = self._prepare_request('ACK', cseq=msg.cseq, *args, **kwargs)
         self.peer.send_message(ack)
+
+    def cancel(self, *args, **kwargs):
+        cancel = self._prepare_request('CANCEL', *args, **kwargs)
+        self.peer.send_message(cancel)
 
     def __enter__(self):
         return self

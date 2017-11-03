@@ -42,7 +42,6 @@ class Peer:
                       router=Router()):
         if not call_id:
             call_id = str(uuid.uuid4())
-        LOG.debug('Creating dialog %s for peer %s', call_id, self)
 
         if not contact_details:
             host, port = self.local_addr
@@ -76,7 +75,7 @@ class Peer:
             cseq=cseq,
             router=router
         )
-
+        LOG.debug('Creating: %s', dialog)
         self._dialogs[call_id] = dialog
         return dialog
 
@@ -89,6 +88,10 @@ class Peer:
                 call_id=dialog.call_id,
                 router=self._app.dialplan.get_user(dialog.to_details['uri']['user']) or ProxyRouter()
             )
+
+        if msg.cseq in proxy_dialog.transactions[msg.method]:
+            proxy_dialog.transactions[msg.method][msg.cseq].retransmit()
+            return
 
         if isinstance(msg.headers['Via'], str):
             msg.headers['Via'] = [msg.headers['Via']]
@@ -105,7 +108,7 @@ class Peer:
         )
 
         if msg.method != 'ACK':
-            async for response in proxy_dialog.start_proxy_transaction(msg, dialog.peer):
+            async for response in proxy_dialog.start_proxy_transaction(msg):
                 yield response
         else:
             self.send_message(msg)
@@ -183,12 +186,12 @@ class BaseConnector:
         except KeyError:
             peer = self._create_peer(peer_addr)
             peer._connected(await self._create_connection(peer_addr=peer_addr))
+            LOG.debug('Creating: %s', peer)
             return peer
 
     def _create_peer(self, peer_addr):
         peer = Peer(peer_addr, self._app, self, loop=self._loop)
         self._peers[peer_addr] = peer
-        LOG.debug('New peer: %s for %s', peer, self.__class__.__name__)
         return peer
 
     async def get_peer(self, protocol, peer_addr):

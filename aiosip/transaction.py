@@ -10,12 +10,12 @@ LOG = logging.getLogger(__name__)
 
 class BaseTransaction:
     def __init__(self, dialog, original_msg=None, attempts=3, *, loop=None):
-        LOG.debug('New Transaction for %s', dialog)
         self.dialog = dialog
         self.original_msg = original_msg
         self.loop = loop or asyncio.get_event_loop()
         self.attempts = attempts
         self.retransmission = None
+        LOG.debug('Creating: %s', self)
 
     async def start(self):
         raise NotImplementedError
@@ -27,7 +27,7 @@ class BaseTransaction:
 
         if msg.method == 'ACK':
             return True
-        if msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
+        elif msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
             self._handle_authenticate(msg)
             return False
         elif msg.status_code == 407:  # Proxy authentication
@@ -45,6 +45,9 @@ class BaseTransaction:
 
     def close(self):
         LOG.debug('Closing %s', self)
+        if self.retransmission:
+            self.retransmission.cancel()
+            self.retransmission = None
 
     async def _timer(self, timeout=0.5):
         max_timeout = timeout * 64
@@ -105,6 +108,11 @@ class BaseTransaction:
                                  payload=self.original_msg.payload,
                                  future=self.futrue)
 
+    def __repr__(self):
+        return '<{0} cseq={1}, method={2}, dialog={3}>'.format(
+            self.__class__.__name__, self.original_msg.cseq, self.original_msg.method, self.dialog
+        )
+
 
 class QueueTransaction(BaseTransaction):
 
@@ -117,13 +125,16 @@ class QueueTransaction(BaseTransaction):
         while True:
             response = await self._incomings.get()
             if isinstance(response, BaseException):
+                self.dialog.end_transaction(self)
                 raise response
             elif response is None:
+                self.dialog.end_transaction(self)
                 return
             elif 100 <= response.status_code < 200:
                 yield response
             else:
                 yield response
+                self.dialog.end_transaction(self)
                 return
 
     def _incoming(self, msg):
@@ -165,55 +176,55 @@ class FutureTransaction(BaseTransaction):
 
     def _error(self, error):
         self._future.set_exception(error)
+        self.dialog.end_transaction(self)
 
     def _result(self, msg):
         self._future.set_result(msg)
+        self.dialog.end_transaction(self)
 
     def close(self):
         super().close()
-        self._future.cancel()
+        if not self._future.done():
+            self._future.cancel()
 
 
 class UnreliableTransaction(FutureTransaction):
-    pass
-    # def cancel(self):
-    #     if self.retransmission:
-    #         self.retransmission.cancel()
-    #         self.retransmission = None
-    #
-    #     hdrs = CIMultiDict()
-    #     hdrs['From'] = self.original_msg.headers['From']
-    #     hdrs['To'] = self.original_msg.headers['To']
-    #     hdrs['Call-ID'] = self.original_msg.headers['Call-ID']
-    #     hdrs['CSeq'] = self.original_msg.headers['CSeq'].replace(self.original_msg.method, 'CANCEL')
-    #     hdrs['Via'] = self.original_msg.headers['Via']
-    #     # self.dialog.reply(method='CANCEL', headers=hdrs)
+    def close(self):
+        if not self._future.done():
+            self.dialog.cancel(cseq=self.original_msg.cseq)
+        super().close()
 
 
 class ProxyTransaction(QueueTransaction):
-    def __init__(self, proxy_peer, *args, **kwargs):
+    def __init__(self, timeout=5, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.proxy_peer = proxy_peer
-        self._transmission = 0
+        self._closing = None
+        self._running = True
+        self._timeout = timeout
 
     async def start(self):
         self.dialog.peer.send_message(self.original_msg)
-        self._transmission, received = 1, 0
-        while self._transmission != received:
+        while self._running:
             response = await self._incomings.get()
             if isinstance(response, BaseException):
                 raise response
             elif response is None:
+                self.dialog.end_transaction(self)
                 return
             elif 100 <= response.status_code < 200:
                 yield response
             else:
-                received += 1
+                if self._closing:
+                    self._closing.cancel()
                 yield response
+                self._closing = self.dialog.app.loop.call_later(self._timeout, self.dialog.end_transaction, self)
 
     def _incoming(self, msg):
         self._incomings.put_nowait(msg)
 
     def retransmit(self):
-        self._transmission += 1
         self.dialog.peer.send_message(self.original_msg)
+
+    def close(self):
+        super().close()
+        self._running = False

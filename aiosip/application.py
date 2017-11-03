@@ -90,7 +90,6 @@ class Application(MutableMapping):
         key = msg.headers['Call-ID']
         dialog = peer._dialogs.get(key)
         if not dialog:
-            LOG.debug('New dialog for %s, ID: "%s"', peer, key)
             dialog = peer.create_dialog(
                 from_details=Contact.from_header(msg.headers['To']),
                 to_details=Contact.from_header(msg.headers['From']),

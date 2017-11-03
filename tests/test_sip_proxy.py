@@ -62,11 +62,12 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_detail
         await dialog.notify(payload='1')
 
     async def notify(dialog, request):
+        await dialog.reply(request, 200)
         callback_complete.set_result(request)
 
     async def proxy_notify(dialog, request):
-        callback_complete_proxy.set_result(request)
         await dialog.router.proxy(dialog, request)
+        callback_complete_proxy.set_result(request)
 
     app = aiosip.Application(loop=loop)
 

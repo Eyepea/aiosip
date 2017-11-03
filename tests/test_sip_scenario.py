@@ -1,10 +1,12 @@
 import aiosip
+import pytest
 import asyncio
 
 
 async def test_notify(test_server, protocol, loop, from_details, to_details):
     notify_list = [0, 1, 2, 3, 4]
     received_notify_futures = [loop.create_future() for _ in notify_list]
+    subscribe_future = loop.create_future()
 
     async def subscribe(dialog, request):
         assert len(dialog.peer.subscriber) == 1
@@ -13,10 +15,11 @@ async def test_notify(test_server, protocol, loop, from_details, to_details):
 
         for i in notify_list:
             await dialog.notify(payload=str(i))
+        subscribe_future.set_result(None)
 
     async def notify(dialog, request):
-        received_notify_futures[int(request.payload)].set_result(request)
         await dialog.reply(request, status_code=200)
+        received_notify_futures[int(request.payload)].set_result(request)
 
     app = aiosip.Application(loop=loop)
     server_app = aiosip.Application(loop=loop)
@@ -43,6 +46,7 @@ async def test_notify(test_server, protocol, loop, from_details, to_details):
     received_notify = [f.result() for f in done]
     assert len(pending) == 0
 
+    await subscribe_future
     assert response.status_code == 200
     assert response.status_message == 'OK'
     assert all((r.method == 'NOTIFY' for r in received_notify))
@@ -125,3 +129,35 @@ async def test_invite(test_server, protocol, loop, from_details, to_details):
     assert responses[1].status_code == 180
     assert responses[2].status_code == 200
     assert ack.method == 'ACK'
+
+
+async def test_cancel(test_server, protocol, loop, from_details, to_details):
+    subscribe_dialog = None
+    cancel_future = loop.create_future()
+
+    async def subscribe(dialog, request):
+        subscribe_dialog.close()
+
+    async def cancel(dialog, request):
+        cancel_future.set_result(request)
+
+    app = aiosip.Application(loop=loop)
+    server_app = aiosip.Application(loop=loop)
+    server_app.dialplan.add_user('pytest', {'SUBSCRIBE': subscribe, 'CANCEL': cancel})
+    server = await test_server(server_app)
+
+    peer = await app.connect(
+        protocol=protocol,
+        remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
+    )
+
+    subscribe_dialog = peer.create_dialog(
+        from_details=aiosip.Contact.from_header(from_details),
+        to_details=aiosip.Contact.from_header(to_details),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await subscribe_dialog.subscribe()
+
+    result = await cancel_future
+    assert result.method == 'CANCEL'
