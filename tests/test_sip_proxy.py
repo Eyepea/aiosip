@@ -11,8 +11,8 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
         callback_complete.set_result(request)
 
     async def proxy_subscribe(dialog, request):
+        await dialog.router.proxy(dialog, request, timeout=0.1)
         callback_complete_proxy.set_result(request)
-        await dialog.router.proxy(dialog, request)
 
     app = aiosip.Application(loop=loop)
 
@@ -66,7 +66,7 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_detail
         callback_complete.set_result(request)
 
     async def proxy_notify(dialog, request):
-        await dialog.router.proxy(dialog, request)
+        await dialog.router.proxy(dialog, request, timeout=0.1)
         callback_complete_proxy.set_result(request)
 
     app = aiosip.Application(loop=loop)

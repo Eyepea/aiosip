@@ -63,8 +63,8 @@ class ProxyRouter(Router):
     def __init__(self):
         super().__init__(default=self.proxy)
 
-    async def proxy(self, dialog, msg):
+    async def proxy(self, dialog, msg, timeout=5):
         peer = await utils.get_proxy_peer(dialog, msg)
-        async for proxy_response in peer.proxy_request(dialog, msg):
+        async for proxy_response in peer.proxy_request(dialog, msg, timeout=timeout):
             if proxy_response:
                 dialog.peer.proxy_response(proxy_response)

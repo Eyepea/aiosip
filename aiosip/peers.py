@@ -79,7 +79,7 @@ class Peer:
         self._dialogs[call_id] = dialog
         return dialog
 
-    async def proxy_request(self, dialog, msg):
+    async def proxy_request(self, dialog, msg, timeout=5):
         proxy_dialog = self._dialogs.get(dialog.call_id)
         if not proxy_dialog:
             proxy_dialog = self.create_dialog(
@@ -108,7 +108,7 @@ class Peer:
         )
 
         if msg.method != 'ACK':
-            async for response in proxy_dialog.start_proxy_transaction(msg):
+            async for response in proxy_dialog.start_proxy_transaction(msg, timeout=timeout):
                 yield response
         else:
             self.send_message(msg)
