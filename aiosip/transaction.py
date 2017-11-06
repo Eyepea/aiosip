@@ -15,6 +15,7 @@ class BaseTransaction:
         self.loop = loop or asyncio.get_event_loop()
         self.attempts = attempts
         self.retransmission = None
+        self.authentification = None
         LOG.debug('Creating: %s', self)
 
     async def start(self):
@@ -25,17 +26,9 @@ class BaseTransaction:
             self.retransmission.cancel()
             self.retransmission = None
 
-        if msg.method == 'ACK':
-            return True
-        elif msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
-            self._handle_authenticate(msg)
-            return False
-        elif msg.status_code == 407:  # Proxy authentication
-            self._handle_proxy_authenticate(msg)
-            return False
-        elif self.original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
-            self.dialog.ack(msg)
-        return True
+        if self.authentification and msg.status_code not in (401, 407):
+            self.authentification.cancel()
+            self.authentification = None
 
     def _error(self, error):
         raise NotImplementedError
@@ -63,6 +56,9 @@ class BaseTransaction:
         )))
 
     def _handle_authenticate(self, msg):
+        if self.authentification is not None:
+            return
+
         if self.dialog.password is None:
             raise ValueError('Password required for authentication')
 
@@ -91,7 +87,7 @@ class BaseTransaction:
         )
 
         self.dialog.transactions[self.original_msg.method][self.original_msg.cseq] = self
-        self.dialog.peer.send_message(self.original_msg)
+        self.authentification = asyncio.ensure_future(self._timer())
 
     def _handle_proxy_authenticate(self, msg):
         self._handle_proxy_authenticate(msg)
@@ -138,8 +134,20 @@ class QueueTransaction(BaseTransaction):
                 return
 
     def _incoming(self, msg):
-        if super()._incoming(msg):
-            self._incomings.put_nowait(msg)
+        super()._incoming(msg)
+        if msg.method == 'ACK':
+            self._result(msg)
+        elif msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
+            self._handle_authenticate(msg)
+            return
+        elif msg.status_code == 407:  # Proxy authentication
+            self._handle_proxy_authenticate(msg)
+            return
+        elif self.original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
+            self.dialog.ack(msg)
+            self._result(msg)
+        else:
+            self._result(msg)
 
     def _error(self, error):
         self._incomings.put_nowait(error)
@@ -163,16 +171,22 @@ class FutureTransaction(BaseTransaction):
         return await self._future
 
     def _incoming(self, msg):
-        if super()._incoming(msg):
-            if msg.method == 'ACK':
-                self._result(msg)
-            elif 100 <= msg.status_code < 200:
-                pass
-            elif self._future.done():
-                LOG.debug('Received response retransmission for %s, %s, %s',
-                          msg.cseq, msg.method, msg.headers['Call-ID'])
-            else:
-                self._result(msg)
+        super()._incoming(msg)
+        if msg.method == 'ACK':
+            self._result(msg)
+        elif msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
+            self._handle_authenticate(msg)
+            return
+        elif msg.status_code == 407:  # Proxy authentication
+            self._handle_proxy_authenticate(msg)
+            return
+        elif self.original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
+            self.dialog.ack(msg)
+            self._result(msg)
+        elif 100 <= msg.status_code < 200:
+            pass
+        else:
+            self._result(msg)
 
     def _error(self, error):
         self._future.set_exception(error)
@@ -220,7 +234,7 @@ class ProxyTransaction(QueueTransaction):
                 self._closing = self.dialog.app.loop.call_later(self._timeout, self.dialog.end_transaction, self)
 
     def _incoming(self, msg):
-        self._incomings.put_nowait(msg)
+        self._result(msg)
 
     def retransmit(self):
         self.dialog.peer.send_message(self.original_msg)

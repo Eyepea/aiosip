@@ -56,7 +56,7 @@ class Dialog:
             transaction = self.transactions[msg.method][msg.cseq]
             transaction._incoming(msg)
         except KeyError:
-            raise RuntimeError('This Response SIP message doesn\'t have a Request: "%s"' % msg)
+            LOG.debug('Response without Request. The Transaction may already be closed. \n%s', msg)
 
     async def _receive_request(self, msg):
 
