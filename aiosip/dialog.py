@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import time
 
 from collections import defaultdict
 from multidict import CIMultiDict
@@ -41,8 +40,12 @@ class Dialog:
         self.callbacks = defaultdict(list)
         self._tasks = list()
         self._nonce = None
+        self._closing = None
 
     async def receive_message(self, msg):
+        if self._closing:
+            self._closing.cancel()
+
         if self.cseq < msg.cseq:
             self.cseq = msg.cseq
 
@@ -59,13 +62,7 @@ class Dialog:
             LOG.debug('Response without Request. The Transaction may already be closed. \n%s', msg)
 
     async def _receive_request(self, msg):
-
-        if msg.method == 'REGISTER':
-            expire = int(msg.headers.get('Expires', 0))
-            self.peer.registered[msg.contact_details['uri']['user']] = time.time() + expire
-        elif msg.method == 'SUBSCRIBE':
-            expire = int(msg.headers.get('Expires', 0))
-            self.peer.subscriber[msg.contact_details['uri']['user']] = time.time() + expire
+        self.peer._bookkeeping(msg, self.call_id)
 
         route = self.router.get(msg.method)
         if route:
@@ -80,6 +77,8 @@ class Dialog:
                 await self.reply(msg, status_code=500)
         else:
             await self.reply(msg, status_code=501)
+
+        self._maybe_close(msg)
 
     async def _call_route(self, route, msg):
         for middleware_factory in reversed(self.app._middleware):
@@ -177,8 +176,8 @@ class Dialog:
             status_code=status_code,
             status_message=status_message,
             headers=headers,
-            from_details=self.to_details,
-            to_details=self.from_details,
+            from_details=request.from_details,
+            to_details=request.to_details,
             contact_details=self.contact_details,
             payload=payload,
             cseq=request.cseq,
@@ -201,7 +200,7 @@ class Dialog:
         else:
             self.peer.send_message(msg)
 
-    def _prepare_request(self, method, contact_details=None, headers=None, payload=None, cseq=None):
+    def _prepare_request(self, method, contact_details=None, headers=None, payload=None, cseq=None, to_details=None):
         self.from_details.add_tag()
         if not cseq:
             self.cseq += 1
@@ -221,7 +220,7 @@ class Dialog:
             method=method,
             cseq=cseq or self.cseq,
             from_details=self.from_details,
-            to_details=self.to_details,
+            to_details=to_details or self.to_details,
             contact_details=self.contact_details,
             headers=headers,
             payload=payload,
@@ -229,8 +228,25 @@ class Dialog:
         return msg
 
     def close(self):
-        self.peer._stop_dialog(self.call_id)
+        self.peer._close_dialog(self.call_id)
         self._close()
+
+    def close_later(self, delay=None):
+        if delay is None:
+            delay = self.app.defaults['dialog_closing_delay']
+        if self._closing:
+            self._closing.cancel()
+        self._closing = self.app.loop.call_later(delay, self.close)
+
+    def _maybe_close(self, msg):
+        if msg.method in ('REGISTER', 'SUBSCRIBE'):
+            expire = int(msg.headers.get('Expires', 0))
+            delay = int(expire * 1.1) if expire else None
+            self.close_later(delay)
+        elif msg.method == 'NOTIFY':
+            pass
+        else:
+            self.close_later()
 
     def _close(self):
         LOG.debug('Closing: %s', self)
@@ -284,8 +300,12 @@ class Dialog:
         async for response in self.request_all('INVITE', *args, **kwargs):
             yield response
 
-    def ack(self, msg, *args, **kwargs):
-        ack = self._prepare_request('ACK', cseq=msg.cseq, *args, **kwargs)
+    def ack(self, msg, headers=None, *args, **kwargs):
+        if not headers:
+            headers = CIMultiDict()
+
+        headers['Via'] = msg.headers['Via']
+        ack = self._prepare_request('ACK', cseq=msg.cseq, to_details=msg.to_details, *args, **kwargs)
         self.peer.send_message(ack)
 
     def cancel(self, *args, **kwargs):

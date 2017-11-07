@@ -9,7 +9,7 @@ LOG = logging.getLogger(__name__)
 
 class Dialplan:
     def __init__(self, default=None):
-        self._default = default
+        self.default = default
         self._dialplan = {}
 
     def add_user(self, user, handler):
@@ -23,8 +23,8 @@ class Dialplan:
         try:
             return self._dialplan[user]
         except KeyError:
-            if self._default:
-                return self._default
+            if self.default:
+                return self.default
             else:
                 return Router()
 
