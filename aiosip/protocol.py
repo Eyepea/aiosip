@@ -35,7 +35,7 @@ class UDP(asyncio.DatagramProtocol):
         msg = message.Message.from_raw_headers(headers)
         msg._raw_payload = data
         LOG.log(5, 'Received via UDP: "%s"', msg)
-        asyncio.ensure_future(self.app.dispatch(self, msg, addr))
+        asyncio.ensure_future(self.app._dispatch(self, msg, addr))
 
     # def error_received(self, exc):
     #     print('Error received:', exc)
@@ -80,7 +80,7 @@ class TCP(asyncio.Protocol):
             msg._raw_payload, self._data = self._data[:content_length], self._data[content_length:]
             # assert len(msg._raw_payload) == int(msg.headers['Content-Length'])
             LOG.log(5, 'Received via TCP: "%s"', msg)
-            asyncio.ensure_future(self.app.dispatch(self, msg, None))
+            asyncio.ensure_future(self.app._dispatch(self, msg, None))
 
     # def error_received(self, exc):
     #     print('Error received:', exc)

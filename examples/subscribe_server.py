@@ -15,25 +15,25 @@ sip_config = {
 }
 
 
-@asyncio.coroutine
-def notify(dialog):
+async def notify(dialog):
     for idx in range(1, 4):
-        yield from dialog.request('NOTIFY',
-                                  payload=str(idx))
-        yield from asyncio.sleep(1)
+        await dialog.notify(payload=str(idx))
+        await asyncio.sleep(1)
 
 
-@asyncio.coroutine
-def on_register(dialog, message):
-    dialog.reply(message, status_code=200)
+async def on_register(dialog, message):
+    await dialog.reply(message, status_code=200)
     print('Registration successful')
 
 
-@asyncio.coroutine
-def on_subscribe(dialog, message):
-    dialog.reply(message, status_code=200)
-    print('Subscription started!')
-    yield from notify(dialog)
+async def on_subscribe(dialog, message):
+    await dialog.reply(message, status_code=200)
+
+    if int(message.headers['Expires']):
+        print('Subscription started!')
+        await notify(dialog)
+    else:
+        print('Subscription ended!')
 
 
 def main_tcp(app):

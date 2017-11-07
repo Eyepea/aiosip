@@ -3,6 +3,10 @@ class AiosipException(Exception):
     pass
 
 
+class AuthentificationFailed(PermissionError):
+    pass
+
+
 class RegisterFailed(AiosipException):
     pass
 

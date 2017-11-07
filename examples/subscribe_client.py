@@ -16,53 +16,41 @@ sip_config = {
 }
 
 
-@asyncio.coroutine
-def show_notify(dialog, request):
+async def show_notify(dialog, request):
     print('NOTIFY:', request.payload)
-    dialog.reply(request, status_code=200)
+    await dialog.reply(request, status_code=200)
 
 
-@asyncio.coroutine
-def option(dialog, request):
-    dialog.reply(request, status_code=200)
+async def option(dialog, request):
+    await dialog.reply(request, status_code=200)
 
 
-@asyncio.coroutine
-def start(app, protocol):
+async def start(app, protocol):
 
-    connection = yield from app.connect((sip_config['srv_host'], sip_config['srv_port']),
-                                        protocol)
+    peer = await app.connect((sip_config['srv_host'], sip_config['srv_port']), protocol)
 
-    register_dialog = connection.create_dialog(
+    register_dialog = peer.create_dialog(
         from_details=aiosip.Contact.from_header(
             'sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_ip'], sip_config['local_port'])),
         to_details=aiosip.Contact.from_header(
             'sip:{}@{}:{}'.format(sip_config['user'], sip_config['srv_host'], sip_config['srv_port'])),
         password=sip_config['pwd'],
     )
-    yield from register_dialog.request(
-        method='REGISTER',
-        headers={'Expires': 1800}
-    )
-    register_dialog.close()
 
-    subscribe_dialog = connection.create_dialog(
+    await register_dialog.register()
+
+    subscribe_dialog = peer.create_dialog(
         from_details=aiosip.Contact.from_header(
             'sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_ip'], sip_config['local_port'])),
         to_details=aiosip.Contact.from_header(
             'sip:666@{}:{}'.format(sip_config['srv_host'], sip_config['srv_port'])),
         password=sip_config['pwd']
     )
-    subscribe_dialog.register_callback('NOTIFY', show_notify)
-    yield from subscribe_dialog.request(
-        method='SUBSCRIBE',
-        headers={'Expires': '1800',
-                 'Event': 'dialog',
-                 'Accept': 'application/dialog-info+xml'}
-    )
 
-    yield from asyncio.sleep(20)
-    subscribe_dialog.close()
+    subscribe_dialog.router['notify'] = show_notify
+    await subscribe_dialog.subscribe()
+    await asyncio.sleep(20)
+    await subscribe_dialog.subscribe(expires=0)
 
 
 def main():

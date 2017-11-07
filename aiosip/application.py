@@ -84,13 +84,12 @@ class Application(MutableMapping):
         server = await connector.create_server(local_addr, sock)
         return server
 
-    async def dispatch(self, protocol, msg, addr):
+    async def _dispatch(self, protocol, msg, addr):
         connector = self._connectors[type(protocol)]
         peer = await connector.get_peer(protocol, addr)
         key = msg.headers['Call-ID']
         dialog = peer._dialogs.get(key)
         if not dialog:
-            LOG.debug('New dialog for %s, ID: "%s"', peer, key)
             dialog = peer.create_dialog(
                 from_details=Contact.from_header(msg.headers['To']),
                 to_details=Contact.from_header(msg.headers['From']),

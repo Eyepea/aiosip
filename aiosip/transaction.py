@@ -1,85 +1,93 @@
 import asyncio
 import logging
 
-from multidict import CIMultiDict
 from aiosip.auth import Auth
-
-from .exceptions import RegisterFailed, InviteFailed
+from .exceptions import AuthentificationFailed
 
 
 LOG = logging.getLogger(__name__)
 
 
-@asyncio.coroutine
-def sip_timer(sender, msg, *, timeout=0.5):
-    max_timeout = timeout * 64
-    while timeout <= max_timeout:
-        sender(msg)
-        yield from asyncio.sleep(timeout)
-        timeout *= 2
-
-    raise asyncio.TimeoutError('SIP timer expired for %s, %s, %s', msg.cseq, msg.method, msg.headers['Call-ID'])
-
-
 class BaseTransaction:
-    def __init__(self, dialog, original_msg=None, attempts=3, future=None, *, loop=None):
-        LOG.debug('New Transaction for %s', dialog)
+    def __init__(self, dialog, original_msg=None, attempts=3, *, loop=None):
         self.dialog = dialog
         self.original_msg = original_msg
         self.loop = loop or asyncio.get_event_loop()
-        self.future = future or asyncio.Future(loop=self.loop)
-        self.retransmission = None
         self.attempts = attempts
+        self.retransmission = None
+        self.authentification = None
+        LOG.debug('Creating: %s', self)
 
-    def start(self):
-        if self.original_msg.method in ('REGISTER', 'INVITE', 'SUBSCRIBE'):
-            self.future.add_done_callback(self._done_callback)
-        self.retransmission = asyncio.ensure_future(sip_timer(self.dialog.peer.send_message, self.original_msg))
-        return self.future
+    async def start(self):
+        raise NotImplementedError
+
+    def _incoming(self, msg):
+        if self.retransmission:
+            self.retransmission.cancel()
+            self.retransmission = None
+
+        if self.authentification and msg.status_code not in (401, 407):
+            self.authentification.cancel()
+            self.authentification = None
+
+    def _error(self, error):
+        raise NotImplementedError
+
+    def _result(self, msg):
+        raise NotImplementedError
+
+    def close(self):
+        LOG.debug('Closing %s', self)
+        if self.retransmission:
+            self.retransmission.cancel()
+            self.retransmission = None
+
+    async def _timer(self, timeout=0.5):
+        max_timeout = timeout * 64
+        while timeout <= max_timeout:
+            self.dialog.peer.send_message(self.original_msg)
+            await asyncio.sleep(timeout)
+            timeout *= 2
+
+        self._error(asyncio.TimeoutError('SIP timer expired for {cseq}, {method}, {call_id}'.format(
+            cseq=self.original_msg.cseq,
+            method=self.original_msg.method,
+            call_id=self.original_msg.headers['Call-ID']
+        )))
 
     def _handle_authenticate(self, msg):
+        if self.authentification is not None:
+            return
+
         if self.dialog.password is None:
             raise ValueError('Password required for authentication')
 
         if msg.method.upper() == 'REGISTER':
             self.attempts -= 1
             if self.attempts < 1:
-                self.future.set_exception(
-                    RegisterFailed('Too many unauthorized attempts!')
-                )
+                self._error(AuthentificationFailed('Too many unauthorized attempts!'))
                 return
             username = msg.to_details['uri']['user']
         elif msg.method.upper() == 'INVITE':
             self.attempts -= 1
             if self.attempts < 1:
-                self.future.set_exception(
-                    InviteFailed('Too many unauthorized attempts!')
-                )
+                self._error(AuthentificationFailed('Too many unauthorized attempts!'))
                 return
             username = msg.from_details['uri']['user']
-
-            hdrs = CIMultiDict()
-            hdrs['From'] = msg.headers['From']
-            hdrs['To'] = msg.headers['To']
-            hdrs['Call-ID'] = msg.headers['Call-ID']
-            hdrs['CSeq'] = msg.headers['CSeq'].replace(self.original_msg.method, 'ACK')
-            hdrs['Via'] = msg.headers['Via']
-            self.dialog.send(method='ACK', headers=hdrs)
         else:
             username = msg.from_details['uri']['user']
 
-        del (self.original_msg.headers['CSeq'])
+        self.original_msg.cseq += 1
         self.original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
             authenticate=msg.headers['WWW-Authenticate'],
             method=msg.method,
             uri=msg.to_details['uri'].short_uri(),
             username=username,
-            password=self.dialog.password))
-        self.dialog.send(self.original_msg.method,
-                         to_details=msg.to_details,
-                         headers=self.original_msg.headers,
-                         payload=self.original_msg.payload,
-                         future=self.future)
+            password=self.dialog.password)
+        )
+
+        self.dialog.transactions[self.original_msg.method][self.original_msg.cseq] = self
+        self.authentification = asyncio.ensure_future(self._timer())
 
     def _handle_proxy_authenticate(self, msg):
         self._handle_proxy_authenticate(msg)
@@ -96,77 +104,141 @@ class BaseTransaction:
                                  payload=self.original_msg.payload,
                                  future=self.futrue)
 
-    def _done_callback(self, result):
-        raise NotImplementedError()
+    def __repr__(self):
+        return '<{0} cseq={1}, method={2}, dialog={3}>'.format(
+            self.__class__.__name__, self.original_msg.cseq, self.original_msg.method, self.dialog
+        )
 
 
-class UnreliableTransaction(BaseTransaction):
-    def feed_message(self, msg):
-        if self.retransmission:
-            self.retransmission.cancel()
-            self.retransmission = None
+class QueueTransaction(BaseTransaction):
 
-        if msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._incomings = asyncio.Queue()
+
+    async def start(self):
+        self.retransmission = asyncio.ensure_future(self._timer())
+        while True:
+            response = await self._incomings.get()
+            if isinstance(response, BaseException):
+                self.dialog.end_transaction(self)
+                raise response
+            elif response is None:
+                self.dialog.end_transaction(self)
+                return
+            elif 100 <= response.status_code < 200:
+                yield response
+            else:
+                yield response
+                self.dialog.end_transaction(self)
+                return
+
+    def _incoming(self, msg):
+        super()._incoming(msg)
+        if msg.method == 'ACK':
+            self._result(msg)
+        elif msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
             self._handle_authenticate(msg)
+            return
         elif msg.status_code == 407:  # Proxy authentication
             self._handle_proxy_authenticate(msg)
+            return
         elif self.original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
-            hdrs = CIMultiDict()
-            hdrs['From'] = msg.headers['From']
-            hdrs['To'] = msg.headers['To']
-            hdrs['Call-ID'] = msg.headers['Call-ID']
-            hdrs['CSeq'] = msg.headers['CSeq'].replace('INVITE', 'ACK')
-            hdrs['Via'] = msg.headers['Via']
-            self.dialog.send(method='ACK', headers=hdrs)
-            self.future.set_result(msg)
+            self.dialog.ack(msg)
+            self._result(msg)
+        else:
+            self._result(msg)
+
+    def _error(self, error):
+        self._incomings.put_nowait(error)
+
+    def _result(self, msg):
+        self._incomings.put_nowait(msg)
+
+    def close(self):
+        super().close()
+        self._incomings.put_nowait(None)
+
+
+class FutureTransaction(BaseTransaction):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._future = self.loop.create_future()
+
+    async def start(self):
+        self.retransmission = asyncio.ensure_future(self._timer())
+        return await self._future
+
+    def _incoming(self, msg):
+        super()._incoming(msg)
+        if msg.method == 'ACK':
+            self._result(msg)
+        elif msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
+            self._handle_authenticate(msg)
+            return
+        elif msg.status_code == 407:  # Proxy authentication
+            self._handle_proxy_authenticate(msg)
+            return
+        elif self.original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
+            self.dialog.ack(msg)
+            self._result(msg)
         elif 100 <= msg.status_code < 200:
             pass
-        elif self.future.done():
-            LOG.debug('Received response retransmission for %s, %s, %s', msg.cseq, msg.method, msg.headers['Call-ID'])
         else:
-            self.future.set_result(msg)
+            self._result(msg)
 
-    def _done_callback(self, result):
-        if result.cancelled():
-            self.cancel()
+    def _error(self, error):
+        self._future.set_exception(error)
+        self.dialog.end_transaction(self)
 
-    def cancel(self):
-        if self.retransmission:
-            self.retransmission.cancel()
-            self.retransmission = None
+    def _result(self, msg):
+        self._future.set_result(msg)
+        self.dialog.end_transaction(self)
 
-        hdrs = CIMultiDict()
-        hdrs['From'] = self.original_msg.headers['From']
-        hdrs['To'] = self.original_msg.headers['To']
-        hdrs['Call-ID'] = self.original_msg.headers['Call-ID']
-        hdrs['CSeq'] = self.original_msg.headers['CSeq'].replace(self.original_msg.method, 'CANCEL')
-        hdrs['Via'] = self.original_msg.headers['Via']
-        # self.dialog.reply(method='CANCEL', headers=hdrs)
-
-    def __await__(self):
-        return self.future
+    def close(self):
+        super().close()
+        if not self._future.done():
+            self._future.cancel()
 
 
-class ProxyTransaction(BaseTransaction):
-    def __init__(self, proxy_peer, *args, **kwargs):
+class UnreliableTransaction(FutureTransaction):
+    def close(self):
+        if not self._future.done():
+            self.dialog.cancel(cseq=self.original_msg.cseq)
+        super().close()
+
+
+class ProxyTransaction(QueueTransaction):
+    def __init__(self, timeout=5, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.proxy_peer = proxy_peer
+        self._closing = None
+        self._running = True
+        self._timeout = timeout
 
-    def feed_message(self, msg):
-        if self.retransmission:
-            self.retransmission.cancel()
-            self.retransmission = None
+    async def start(self):
+        self.dialog.peer.send_message(self.original_msg)
+        while self._running:
+            response = await self._incomings.get()
+            if isinstance(response, BaseException):
+                raise response
+            elif response is None:
+                self.dialog.end_transaction(self)
+                return
+            elif 100 <= response.status_code < 200:
+                yield response
+            else:
+                if self._closing:
+                    self._closing.cancel()
+                yield response
+                self._closing = self.dialog.app.loop.call_later(self._timeout, self.dialog.end_transaction, self)
 
-        if 100 <= msg.status_code < 200:
-            self.proxy_peer.proxy_response(msg)
-        elif self.future.done():
-            LOG.debug('Receive retransmission for %s, %s, %s', msg.cseq, msg.method, msg.headers['Call-ID'])
-        else:
-            self.future.set_result(msg)
+    def _incoming(self, msg):
+        self._result(msg)
 
-    def _done_callback(self, result):
-        if result.cancelled():
-            raise NotImplementedError()
+    def retransmit(self):
+        self.dialog.peer.send_message(self.original_msg)
 
-    def _handle_authenticate(self, msg):
-        pass
+    def close(self):
+        super().close()
+        self._running = False
