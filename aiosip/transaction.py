@@ -16,6 +16,7 @@ class BaseTransaction:
         self.attempts = attempts
         self.retransmission = None
         self.authentification = None
+        self._running = True
         LOG.debug('Creating: %s', self)
 
     async def start(self):
@@ -37,6 +38,7 @@ class BaseTransaction:
         raise NotImplementedError
 
     def close(self):
+        self._running = False
         LOG.debug('Closing %s', self)
         if self.retransmission:
             self.retransmission.cancel()
@@ -156,8 +158,9 @@ class QueueTransaction(BaseTransaction):
         self._incomings.put_nowait(msg)
 
     def close(self):
-        super().close()
-        self._incomings.put_nowait(None)
+        if self._running:
+            super().close()
+            self._incomings.put_nowait(None)
 
 
 class FutureTransaction(BaseTransaction):
@@ -197,15 +200,16 @@ class FutureTransaction(BaseTransaction):
         self.dialog.end_transaction(self)
 
     def close(self):
-        super().close()
-        if not self._future.done():
-            self._future.cancel()
+        if self._running:
+            super().close()
+            if not self._future.done():
+                self._future.cancel()
 
 
 class UnreliableTransaction(FutureTransaction):
     def close(self):
-        if not self._future.done():
-            self.dialog.cancel(cseq=self.original_msg.cseq)
+        if self._running and not self._future.done():
+                self.dialog.cancel(cseq=self.original_msg.cseq)
         super().close()
 
 
@@ -213,7 +217,6 @@ class ProxyTransaction(QueueTransaction):
     def __init__(self, timeout=5, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._closing = None
-        self._running = True
         self._timeout = timeout
 
     async def start(self):
@@ -238,7 +241,3 @@ class ProxyTransaction(QueueTransaction):
 
     def retransmit(self):
         self.dialog.peer.send_message(self.original_msg)
-
-    def close(self):
-        super().close()
-        self._running = False

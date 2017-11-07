@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 import uuid
 
 from . import utils
@@ -26,6 +27,8 @@ class Peer:
     def close(self):
         if not self.closed:
             self.closed = True
+            self.registered = {}
+            self.subscriber = {}
             for dialog in self._dialogs.values():
                 dialog._close()
             self._dialogs = {}
@@ -39,7 +42,10 @@ class Peer:
         self._protocol.send_message(msg, addr=self.peer_addr)
 
     def create_dialog(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
-                      router=Router()):
+                      router=None):
+        if not router:
+            router = self._app.dialplan.default or Router()
+
         if not call_id:
             call_id = str(uuid.uuid4())
 
@@ -80,6 +86,10 @@ class Peer:
         return dialog
 
     async def proxy_request(self, dialog, msg, timeout=5):
+        if msg.method == 'ACK':
+            self.send_message(msg)
+            return
+
         proxy_dialog = self._dialogs.get(dialog.call_id)
         if not proxy_dialog:
             proxy_dialog = self.create_dialog(
@@ -88,8 +98,7 @@ class Peer:
                 call_id=dialog.call_id,
                 router=self._app.dialplan.get_user(dialog.to_details['uri']['user']) or ProxyRouter()
             )
-
-        if msg.cseq in proxy_dialog.transactions[msg.method]:
+        elif msg.cseq in proxy_dialog.transactions[msg.method]:
             proxy_dialog.transactions[msg.method][msg.cseq].retransmit()
             return
 
@@ -107,22 +116,61 @@ class Peer:
             )
         )
 
-        if msg.method != 'ACK':
-            async for response in proxy_dialog.start_proxy_transaction(msg, timeout=timeout):
-                yield response
-        else:
-            self.send_message(msg)
+        async for response in proxy_dialog.start_proxy_transaction(msg, timeout=timeout):
+            yield response
+
+        proxy_dialog._maybe_close(msg)
+
+    def _bookkeeping(self, msg, call_id):
+        if msg.method not in ('REGISTER', 'SUBSCRIBE'):
             return
+
+        expires = int(msg.headers.get('Expires', 0))
+
+        if msg.method == 'REGISTER' and expires:
+            self.registered[msg.contact_details['uri']['user']] = {
+                'expires': time.time() + expires,
+                'dialog': call_id
+            }
+        elif msg.method == 'SUBSCRIBE' and expires:
+            self.subscriber[msg.contact_details['uri']['user']] = {
+                'expires': time.time() + expires,
+                'dialog': call_id
+            }
+        if msg.method == 'REGISTER' and not expires:
+            try:
+                del self.registered[msg.contact_details['uri']['user']]
+            except KeyError:
+                pass
+        elif msg.method == 'SUBSCRIBE' and not expires:
+            try:
+                del self.subscriber[msg.contact_details['uri']['user']]
+            except KeyError:
+                pass
 
     def proxy_response(self, msg):
         msg.headers['Via'].pop(0)
         return self.send_message(msg)
 
-    def _stop_dialog(self, call_id):
+    def _close_dialog(self, call_id):
         try:
             del self._dialogs[call_id]
         except KeyError:
             pass
+
+        to_del = list()
+        for user, value in self.registered.items():
+            if value['dialog'] == call_id:
+                to_del.append(user)
+        for user in to_del:
+            del self.registered[user]
+
+        to_del = list()
+        for user, value in self.subscriber.items():
+            if value['dialog'] == call_id:
+                to_del.append(user)
+        for user in to_del:
+            del self.subscriber[user]
 
     def __enter__(self):
         return self
