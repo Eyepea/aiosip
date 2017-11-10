@@ -210,8 +210,8 @@ class Peer:
             yield contact, expire
 
     def __repr__(self):
-        return '<{0} {1[0]}:{1[1]}, local_addr={2[0]}:{2[1]}>'.format(
-            self.__class__.__name__, self.peer_addr, self.local_addr)
+        return '<{0} {1[0]}:{1[1]} {2}, local_addr={3[0]}:{3[1]}>'.format(
+            self.__class__.__name__, self.peer_addr, self.protocol.__name__, self.local_addr)
 
 
 class BaseConnector:
@@ -221,7 +221,7 @@ class BaseConnector:
 
         self._protocols = {}
         self._peers = {}
-        self._servers = []
+        self._servers = {}
 
     async def create_server(self, local_addr, sock):
         return await self._create_server(local_addr, sock)
@@ -273,12 +273,14 @@ class BaseConnector:
 
 
 class TCPConnector(BaseConnector):
-    def _create_server(self, local_addr, sock):
-        return self._loop.create_server(
+    async def _create_server(self, local_addr, sock):
+        server = await self._loop.create_server(
             lambda: TCP(app=self._app, loop=self._loop),
             host=local_addr[0],
             port=local_addr[1],
             sock=sock)
+        self._servers[local_addr] = server
+        return server
 
     async def _create_connection(self, peer_addr):
         try:
@@ -293,44 +295,44 @@ class TCPConnector(BaseConnector):
 
     async def _dispatch(self, protocol, addr):
         peer_addr = protocol.transport.get_extra_info('peername')
-        if peer_addr not in self._protocols:
-            self._protocols[peer_addr] = protocol
+        self._protocols[peer_addr] = protocol
         return await self.create_peer(peer_addr)
 
 
 class UDPConnector(BaseConnector):
-    def _create_server(self, local_addr, sock):
-        return self._create_connection(local_addr=local_addr, sock=sock)
+    async def _create_connection(self, peer_addr):
+        try:
+            return self._protocols[peer_addr]
+        except KeyError:
+            _, proto = await self._loop.create_datagram_endpoint(
+                lambda: UDP(app=self._app, loop=self._loop),
+                remote_addr=peer_addr
+            )
+            self._protocols[peer_addr] = proto
+            return proto
 
-    async def _create_connection(self, peer_addr=None, local_addr=None, sock=None):
-        if not peer_addr and not local_addr and not sock:
-            raise ValueError('One of peer_addr, local_addr, sock is mandatory')
-        elif sock:
-            local_addr = sock.getsockname()
+    async def _create_server(self, local_addr=None, sock=None):
+        if sock and local_addr:
+            raise ValueError('local_addr and sock are mutually exclusive')
+        elif not sock and not local_addr:
+            raise ValueError('One of local_addr, sock is mandatory')
 
         try:
-            if local_addr:
-                return self._protocols[local_addr]
-            else:
-                return list(self._protocols.values())[0]  # In UDP we only need one connection
-        except (KeyError, IndexError):
+            return self._servers[local_addr]
+        except KeyError:
+            _, proto = await self._loop.create_datagram_endpoint(
+                lambda: UDP(app=self._app, loop=self._loop),
+                sock=sock,
+                local_addr=local_addr
+            )
+            proto_addr = proto.transport.get_extra_info('sockname')
             if sock:
-                _, proto = await self._loop.create_datagram_endpoint(
-                    lambda: UDP(app=self._app, loop=self._loop),
-                    sock=sock
-                )
-            elif local_addr:
-                _, proto = await self._loop.create_datagram_endpoint(
-                    lambda: UDP(app=self._app, loop=self._loop),
-                    local_addr=local_addr)
-                assert local_addr == proto.transport.get_extra_info('sockname')
+                assert sock.getsockname() == proto_addr
             else:
-                _, proto = await self._loop.create_datagram_endpoint(
-                    lambda: UDP(app=self._app, loop=self._loop),
-                    remote_addr=peer_addr)
-                local_addr = proto.transport.get_extra_info('sockname')
-            self._protocols[local_addr] = proto
+                assert local_addr == proto_addr
+            self._servers[local_addr] = proto
             return proto
 
     async def _dispatch(self, protocol, peer_addr):
+        self._protocols[peer_addr] = protocol
         return await self.create_peer(peer_addr)
