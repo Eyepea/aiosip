@@ -64,6 +64,9 @@ class Dialog:
     async def _receive_request(self, msg):
         self.peer._bookkeeping(msg, self.call_id)
 
+        if 'tag' in msg.from_details['params']:
+            self.to_details['params']['tag'] = msg.from_details['params']['tag']
+
         route = self.router.get(msg.method)
         if route:
             try:
@@ -176,8 +179,8 @@ class Dialog:
             status_code=status_code,
             status_message=status_message,
             headers=headers,
-            from_details=request.from_details,
-            to_details=request.to_details,
+            from_details=self.to_details,
+            to_details=self.from_details,
             contact_details=self.contact_details,
             payload=payload,
             cseq=request.cseq,
@@ -293,8 +296,20 @@ class Dialog:
 
         return await self.request('SUBSCRIBE', headers=headers, *args, **kwargs)
 
-    async def notify(self, *args, **kwargs):
-        return await self.request('NOTIFY', *args, **kwargs)
+    async def notify(self, *args, headers=None, **kwargs):
+        if not headers:
+            headers = CIMultiDict()
+
+        if 'Event' not in headers:
+            headers['Event'] = 'dialog'
+
+        if 'Content-Type' not in headers:
+            headers['Content-Type'] = 'application/dialog-info+xml'
+
+        if 'Subscription-State' not in headers:
+            headers['Subscription-State'] = 'active'
+
+        return await self.request('NOTIFY', *args, headers=headers, **kwargs)
 
     async def invite(self, *args, **kwargs):
         async for response in self.request_all('INVITE', *args, **kwargs):
