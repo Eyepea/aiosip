@@ -1,8 +1,10 @@
 import asyncio
+import functools
 import logging
 
 from aiosip.auth import Auth
 from .exceptions import AuthentificationFailed
+from .timer import retransmit_invite
 
 
 LOG = logging.getLogger(__name__)
@@ -44,19 +46,6 @@ class BaseTransaction:
             self.retransmission.cancel()
             self.retransmission = None
 
-    async def _timer(self, timeout=0.5):
-        max_timeout = timeout * 64
-        while timeout <= max_timeout:
-            self.dialog.peer.send_message(self.original_msg)
-            await asyncio.sleep(timeout)
-            timeout *= 2
-
-        self._error(asyncio.TimeoutError('SIP timer expired for {cseq}, {method}, {call_id}'.format(
-            cseq=self.original_msg.cseq,
-            method=self.original_msg.method,
-            call_id=self.original_msg.headers['Call-ID']
-        )))
-
     def _handle_authenticate(self, msg):
         if self.authentification is not None:
             return
@@ -89,7 +78,9 @@ class BaseTransaction:
         )
 
         self.dialog.transactions[self.original_msg.method][self.original_msg.cseq] = self
-        self.authentification = asyncio.ensure_future(self._timer())
+        self.authentification = retransmit_invite(
+            functools.partial(self.dialog.peer.send_message, self.original_msg)
+        )
 
     def _handle_proxy_authenticate(self, msg):
         self._handle_proxy_authenticate(msg)
@@ -119,7 +110,9 @@ class QueueTransaction(BaseTransaction):
         self._incomings = asyncio.Queue()
 
     async def start(self):
-        self.retransmission = asyncio.ensure_future(self._timer())
+        self.retransmission = retransmit_invite(
+            functools.partial(self.dialog.peer.send_message, self.original_msg)
+        )
         while True:
             response = await self._incomings.get()
             if isinstance(response, BaseException):
@@ -170,7 +163,9 @@ class FutureTransaction(BaseTransaction):
         self._future = self.loop.create_future()
 
     async def start(self):
-        self.retransmission = asyncio.ensure_future(self._timer())
+        self.retransmission = retransmit_invite(
+            functools.partial(self.dialog.peer.send_message, self.original_msg)
+        )
         return await self._future
 
     def _incoming(self, msg):
