@@ -65,6 +65,7 @@ class ProxyRouter(Router):
 
     async def proxy(self, dialog, msg, timeout=5):
         peer = await utils.get_proxy_peer(dialog, msg)
+        LOG.debug('Proxying "%s, %s, %s" from "%s" to "%s"', msg.cseq, msg.method, dialog.call_id, dialog.peer, peer)
         async for proxy_response in peer.proxy_request(dialog, msg, timeout=timeout):
             if proxy_response:
                 dialog.peer.proxy_response(proxy_response)
