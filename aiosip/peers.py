@@ -3,6 +3,8 @@ import logging
 import time
 import uuid
 
+from collections import defaultdict
+
 from . import utils
 from .dialplan import Router, ProxyRouter
 from .protocol import UDP, TCP
@@ -15,7 +17,7 @@ class Peer:
     def __init__(self, peer_addr, app, connector, *, loop=None):
         self.peer_addr = peer_addr
         self.registered = {}
-        self.subscriber = {}
+        self.subscriber = defaultdict(dict)
         self._app = app
         self._connector = connector
         self._protocol = None
@@ -24,11 +26,15 @@ class Peer:
         self._connected_future = asyncio.Future(loop=loop)
         self.closed = False
 
+    @property
+    def dialogs(self):
+        return self._dialogs
+
     def close(self):
         if not self.closed:
             self.closed = True
             self.registered = {}
-            self.subscriber = {}
+            self.subscriber = defaultdict(dict)
             for dialog in self._dialogs.values():
                 dialog._close()
             self._dialogs = {}
@@ -133,7 +139,7 @@ class Peer:
                 'dialog': call_id
             }
         elif msg.method == 'SUBSCRIBE' and expires:
-            self.subscriber[msg.contact_details['uri']['user']] = {
+            self.subscriber[msg.contact_details['uri']['user']][msg.to_details['uri']['user']] = {
                 'expires': time.time() + expires,
                 'dialog': call_id
             }
@@ -144,7 +150,7 @@ class Peer:
                 pass
         elif msg.method == 'SUBSCRIBE' and not expires:
             try:
-                del self.subscriber[msg.contact_details['uri']['user']]
+                del self.subscriber[msg.contact_details['uri']['user']][msg.to_details['uri']['user']]
             except KeyError:
                 pass
 
@@ -166,11 +172,13 @@ class Peer:
             del self.registered[user]
 
         to_del = list()
-        for user, value in self.subscriber.items():
-            if value['dialog'] == call_id:
-                to_del.append(user)
-        for user in to_del:
-            del self.subscriber[user]
+        for user, subscriptions in self.subscriber.items():
+            for subscribe, values in subscriptions.items():
+                if values['dialog'] == call_id:
+                    to_del.append((user, subscribe))
+
+        for v in to_del:
+            del self.subscriber[v[0]][v[1]]
 
     def __enter__(self):
         return self
@@ -204,10 +212,10 @@ class Peer:
 
     @property
     def contacts(self):
-        for contact, expire in self.registered.items():
-            yield contact, expire
-        for contact, expire in self.subscriber.items():
-            yield contact, expire
+        for contact in self.registered:
+            yield contact
+        for contact in self.subscriber:
+            yield contact
 
     def __repr__(self):
         return '<{0} {1[0]}:{1[1]} {2}, local_addr={3[0]}:{3[1]}>'.format(
