@@ -60,7 +60,8 @@ class Application(MutableMapping):
     @property
     def peers(self):
         for connector in self._connectors.values():
-            yield from connector._peers.values()
+            for peers in connector._peers.values():
+                yield from peers
 
     @property
     def dialogs(self):
