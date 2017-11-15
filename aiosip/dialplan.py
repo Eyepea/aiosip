@@ -9,27 +9,16 @@ LOG = logging.getLogger(__name__)
 
 class Dialplan:
     def __init__(self, default=None):
+        self._users = {}
         self.default = default
-        self._dialplan = {}
 
-    def add_user(self, user, handler):
-        if user in self._dialplan:
-            raise RuntimeError('Handler already registered for extension')
+    async def resolve(self, username, protocol, local_addr, remote_addr):
+        LOG.debug('Resolving dialplan for %s connecting on %s from %s via %s',
+                  username, local_addr, remote_addr, protocol)
+        return self._users.get(username, self.default)
 
-        self._dialplan[user] = handler
-
-    def resolve(self, message):
-        user = message.from_details['uri']['user']
-        try:
-            return self._dialplan[user]
-        except KeyError:
-            if self.default:
-                return self.default
-            else:
-                return Router()
-
-    def get_user(self, user):
-        return self._dialplan.get(user)
+    def set_user(self, username, router):
+        self._users[username] = router
 
 
 class Router(MutableMapping):
