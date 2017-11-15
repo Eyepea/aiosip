@@ -20,7 +20,7 @@ class UDP(asyncio.DatagramProtocol):
         else:
             msg.headers['Via'][0] %= {'protocol': 'UDP'}
 
-        LOG.log(5, 'Sent via UDP: "%s"', msg)
+        LOG.log(5, 'Sending to: "%s" via UDP: "%s"', addr, msg)
         self.transport.sendto(msg.encode(), addr)
 
     def connection_made(self, transport):
@@ -34,7 +34,7 @@ class UDP(asyncio.DatagramProtocol):
         headers, data = data.split(b'\r\n\r\n', 1)
         msg = message.Message.from_raw_headers(headers)
         msg._raw_payload = data
-        LOG.log(5, 'Received via UDP: "%s"', msg)
+        LOG.log(5, 'Received from "%s" via UDP: "%s"', addr, msg)
         asyncio.ensure_future(self.app._dispatch(self, msg, addr))
 
     # def error_received(self, exc):
