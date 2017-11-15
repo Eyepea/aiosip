@@ -12,10 +12,7 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
         callback_complete.set_result(request)
 
     async def proxy_subscribe(dialog, request):
-        try:
-            await dialog.router.proxy(dialog, request, timeout=0.1)
-        except Exception as e:
-            raise
+        await dialog.router.proxy(dialog, request, timeout=0.1)
         callback_complete_proxy.set_result(request)
 
     app = aiosip.Application(loop=loop)
@@ -41,7 +38,6 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
     )
 
     response = await subscribe_dialog.subscribe(expires=1800)
-    print(response)
     received_request_server = await asyncio.wait_for(callback_complete, timeout=2)
     received_request_proxy = await asyncio.wait_for(callback_complete_proxy, timeout=2)
 
