@@ -6,7 +6,6 @@ from multidict import CIMultiDict
 
 from . import utils
 from .message import Request, Response
-from .dialplan import Router
 from .transaction import UnreliableTransaction, ProxyTransaction, QueueTransaction
 from .auth import Auth
 

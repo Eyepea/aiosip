@@ -17,7 +17,7 @@ class Dialplan:
                   username, local_addr, remote_addr, protocol)
         return self._users.get(username, self.default)
 
-    def set_user(self, username, router):
+    def add_user(self, username, router):
         self._users[username] = router
 
 
