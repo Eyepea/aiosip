@@ -6,7 +6,6 @@ from multidict import CIMultiDict
 
 from . import utils
 from .message import Request, Response
-from .dialplan import Router
 from .transaction import UnreliableTransaction, ProxyTransaction, QueueTransaction
 from .auth import Auth
 
@@ -35,7 +34,7 @@ class Dialog:
         self.peer = peer
         self.password = password
         self.cseq = cseq
-        self.router = router or Router()
+        self.router = router
         self.transactions = defaultdict(dict)
         self.callbacks = defaultdict(list)
         self._tasks = list()
@@ -67,19 +66,22 @@ class Dialog:
         if 'tag' in msg.from_details['params']:
             self.to_details['params']['tag'] = msg.from_details['params']['tag']
 
-        route = self.router.get(msg.method)
-        if route:
-            try:
-                t = asyncio.ensure_future(self._call_route(route, msg))
-                self._tasks.append(t)
-                await t
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                LOG.exception(e)
-                await self.reply(msg, status_code=500)
+        if self.router:
+            route = self.router.get(msg.method)
+            if route:
+                try:
+                    t = asyncio.ensure_future(self._call_route(route, msg))
+                    self._tasks.append(t)
+                    await t
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    LOG.exception(e)
+                    await self.reply(msg, status_code=500)
+            else:
+                await self.reply(msg, status_code=501)
         else:
-            await self.reply(msg, status_code=501)
+            await self.reply(msg, status_code=404)
 
         self._maybe_close(msg)
 

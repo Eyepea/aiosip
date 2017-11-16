@@ -91,12 +91,18 @@ class Application(MutableMapping):
         key = msg.headers['Call-ID']
         dialog = peer._dialogs.get(key)
         if not dialog:
+            router = await self.dialplan.resolve(
+                username=msg.from_details['uri']['user'],
+                protocol=peer.protocol,
+                local_addr=peer.local_addr,
+                remote_addr=peer.peer_addr
+            )
             dialog = peer.create_dialog(
                 from_details=Contact.from_header(msg.headers['To']),
                 to_details=Contact.from_header(msg.headers['From']),
                 password=None,
                 call_id=msg.headers['Call-ID'],
-                router=self.dialplan.resolve(msg)
+                router=router
             )
         await dialog.receive_message(msg)
 

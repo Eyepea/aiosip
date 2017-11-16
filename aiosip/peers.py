@@ -6,7 +6,6 @@ import uuid
 from collections import defaultdict
 
 from . import utils
-from .dialplan import Router, ProxyRouter
 from .protocol import UDP, TCP
 from .contact import Contact
 
@@ -49,8 +48,6 @@ class Peer:
 
     def create_dialog(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
                       router=None):
-        if not router:
-            router = self._app.dialplan.default or Router()
 
         if not call_id:
             call_id = str(uuid.uuid4())
@@ -98,11 +95,17 @@ class Peer:
 
         proxy_dialog = self._dialogs.get(dialog.call_id)
         if not proxy_dialog:
+            router = await self._app.dialplan.resolve(
+                    username=dialog.to_details['uri']['user'],
+                    protocol=dialog.peer.protocol,
+                    local_addr=dialog.peer.local_addr,
+                    remote_addr=dialog.peer.peer_addr
+            )
             proxy_dialog = self.create_dialog(
                 from_details=dialog.from_details,
                 to_details=dialog.to_details,
                 call_id=dialog.call_id,
-                router=self._app.dialplan.get_user(dialog.to_details['uri']['user']) or ProxyRouter()
+                router=router
             )
         elif msg.cseq in proxy_dialog.transactions[msg.method]:
             proxy_dialog.transactions[msg.method][msg.cseq].retransmit()
