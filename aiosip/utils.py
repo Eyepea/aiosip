@@ -1,6 +1,10 @@
 import random
 import string
 import ipaddress
+import logging
+
+
+LOG = logging.getLogger(__name__)
 
 EOL = '\r\n'
 BYTES_EOL = b'\r\n'
@@ -106,13 +110,12 @@ async def get_proxy_peer(dialog, msg):
 
     if (host, port) == dialog.peer.peer_addr or (host, port) == dialog.contact_details:
         for peer in dialog.app.peers:
-            if msg.method == 'NOTIFY':
-                if msg.to_details['uri']['user'] in peer.subscriber:
-                    return peer
-            elif msg.to_details['uri']['user'] in peer.registered:
+            if msg.method == 'NOTIFY' and peer.subscriber[msg.to_details['uri']['user']]:
+                return peer
+            if msg.to_details['uri']['user'] in peer.registered:
                 return peer
         else:
-            raise ValueError('No proxy peer found for: {}'.format(msg))
+            raise RuntimeError('No proxy peer found for: {}'.format(msg))
     else:
         host = await get_host_ip(msg.to_details['uri']['host'], dialog.app.dns)
         port = msg.to_details['uri']['port'] or dialog.from_details['uri']['port']

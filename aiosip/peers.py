@@ -231,29 +231,38 @@ class BaseConnector:
         self._loop = loop or asyncio.get_event_loop()
 
         self._protocols = {}
-        self._peers = defaultdict(list)
+        self._peers = {}
         self._servers = {}
 
     async def create_server(self, local_addr, sock):
         return await self._create_server(local_addr, sock)
 
     async def create_peer(self, peer_addr, local_addr=None):
-        for peer in self._peers[peer_addr]:
-            if local_addr and peer.local_addr != local_addr:
-                continue
+        try:
+            if not local_addr:
+                peer = [peer for key, peer in self._peers.items() if key[0] == peer_addr][0]
             else:
-                await peer.connected
-                return peer
-        else:
+                peer = self._peers[(peer_addr, local_addr)]
+        except (KeyError, IndexError):
             peer = self._create_peer(peer_addr)
-            peer._connected(await self._create_connection(peer_addr=peer_addr, local_addr=local_addr))
+            await self._connect_peer(peer, local_addr)
             LOG.debug('Creating: %s', peer)
+            return peer
+        else:
+            await peer.connected
             return peer
 
     def _create_peer(self, peer_addr):
         peer = Peer(peer_addr, self._app, self, loop=self._loop)
-        self._peers[peer_addr].append(peer)
+        self._peers[(peer_addr, None)] = peer
         return peer
+
+    async def _connect_peer(self, peer, local_addr):
+        peer._connected(await self._create_connection(peer_addr=peer.peer_addr, local_addr=local_addr))
+        if (peer.peer_addr, None) in self._peers:
+            del self._peers[(peer.peer_addr, None)]
+        if (peer.peer_addr, peer.local_addr) not in self._peers:
+            self._peers[(peer.peer_addr, peer.local_addr)] = peer
 
     async def get_peer(self, protocol, peer_addr):
         return await self._dispatch(protocol, peer_addr)
@@ -261,16 +270,13 @@ class BaseConnector:
     def connection_lost(self, protocol):
         peer_addr = protocol.transport.get_extra_info('peername')
         local_addr = protocol.transport.get_extra_info('sockname')
-
-        lost_peers = [peer for peer in self._peers[peer_addr] if peer.local_addr == local_addr]
-        for peer in lost_peers:
+        peer = self._peers.pop((peer_addr, local_addr), None)
+        if peer:
             peer.close()
-            self._peers[peer_addr].remove(peer)
 
     def close(self):
-        for peers in self._peers.values():
-            for peer in peers:
-                peer.close()
+        for peer in self._peers.values():
+            peer.close()
 
     def _release(self, peer_addr, protocol, should_close=False):
         _protocol = self._protocols.pop(peer_addr, None)
