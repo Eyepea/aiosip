@@ -166,8 +166,7 @@ class Dialog:
         if contact_details:
             self.contact_details = contact_details
 
-        if not headers:
-            headers = CIMultiDict()
+        headers = CIMultiDict(headers or {})
 
         if 'User-Agent' not in headers:
             headers['User-Agent'] = self.app.defaults['user_agent']
@@ -211,8 +210,7 @@ class Dialog:
         if contact_details:
             self.contact_details = contact_details
 
-        if not headers:
-            headers = CIMultiDict()
+        headers = CIMultiDict(headers or {})
 
         if 'User-Agent' not in headers:
             headers['User-Agent'] = self.app.defaults['user_agent']
@@ -267,8 +265,7 @@ class Dialog:
             task.cancel()
 
     async def register(self, headers=None, expires=1800, *args, **kwargs):
-        if not headers:
-            headers = CIMultiDict()
+        headers = CIMultiDict(headers or {})
 
         if 'Allow' not in headers:
             headers['Allow'] = 'INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH'
@@ -282,8 +279,7 @@ class Dialog:
         return await self.request('REGISTER', headers=headers, *args, **kwargs)
 
     async def subscribe(self, headers=None, expires=1800, *args, **kwargs):
-        if not headers:
-            headers = CIMultiDict()
+        headers = CIMultiDict(headers or {})
 
         if 'Event' not in headers:
             headers['Event'] = 'dialog'
@@ -297,8 +293,7 @@ class Dialog:
         return await self.request('SUBSCRIBE', headers=headers, *args, **kwargs)
 
     async def notify(self, *args, headers=None, **kwargs):
-        if not headers:
-            headers = CIMultiDict()
+        headers = CIMultiDict(headers or {})
 
         if 'Event' not in headers:
             headers['Event'] = 'dialog'
@@ -316,8 +311,7 @@ class Dialog:
             yield response
 
     def ack(self, msg, headers=None, *args, **kwargs):
-        if not headers:
-            headers = CIMultiDict()
+        headers = CIMultiDict(headers or {})
 
         headers['Via'] = msg.headers['Via']
         ack = self._prepare_request('ACK', cseq=msg.cseq, to_details=msg.to_details, *args, **kwargs)
