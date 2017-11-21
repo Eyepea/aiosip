@@ -120,6 +120,8 @@ async def test_invite(test_server, protocol, loop, from_details, to_details):
 
     responses = list()
     async for msg in invite_dialog.invite():
+        if msg.status_code == 200:
+            invite_dialog.ack(msg)
         responses.append(msg)
 
     ack = await ack_future

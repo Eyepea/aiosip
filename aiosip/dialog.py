@@ -112,7 +112,7 @@ class Dialog:
         return await transaction.start()
 
     async def start_queue_transaction(self, msg):
-        transaction = QueueTransaction(self, original_msg=msg, loop=self.app.loop)
+        transaction = QueueTransaction(dialog=self, original_msg=msg, loop=self.app.loop)
         self.transactions[msg.method][msg.cseq] = transaction
         async for response in transaction.start():
             yield response
@@ -316,7 +316,7 @@ class Dialog:
         headers = CIMultiDict(headers or {})
 
         headers['Via'] = msg.headers['Via']
-        ack = self._prepare_request('ACK', cseq=msg.cseq, to_details=msg.to_details, *args, **kwargs)
+        ack = self._prepare_request('ACK', cseq=msg.cseq, to_details=msg.to_details, headers=headers, *args, **kwargs)
         self.peer.send_message(ack)
 
     def cancel(self, *args, **kwargs):

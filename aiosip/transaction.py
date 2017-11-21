@@ -114,13 +114,15 @@ class BaseTransaction:
 
 class QueueTransaction(BaseTransaction):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, timeout=5, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._incomings = asyncio.Queue()
+        self._closing = None
+        self._timeout = timeout
 
     async def start(self):
         self.retransmission = asyncio.ensure_future(self._timer())
-        while True:
+        while self._running:
             response = await self._incomings.get()
             if isinstance(response, BaseException):
                 self.dialog.end_transaction(self)
@@ -131,9 +133,10 @@ class QueueTransaction(BaseTransaction):
             elif 100 <= response.status_code < 200:
                 yield response
             else:
+                if self._closing:
+                    self._closing.cancel()
                 yield response
-                self.dialog.end_transaction(self)
-                return
+                self._closing = self.dialog.app.loop.call_later(self._timeout, self.dialog.end_transaction, self)
 
     def _incoming(self, msg):
         super()._incoming(msg)
@@ -145,9 +148,6 @@ class QueueTransaction(BaseTransaction):
         elif msg.status_code == 407:  # Proxy authentication
             self._handle_proxy_authenticate(msg)
             return
-        elif self.original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
-            self.dialog.ack(msg)
-            self._result(msg)
         else:
             self._result(msg)
 
@@ -214,16 +214,15 @@ class UnreliableTransaction(FutureTransaction):
 
 
 class ProxyTransaction(QueueTransaction):
-    def __init__(self, timeout=5, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._closing = None
-        self._timeout = timeout
 
     async def start(self):
         self.dialog.peer.send_message(self.original_msg)
         while self._running:
             response = await self._incomings.get()
             if isinstance(response, BaseException):
+                self.dialog.end_transaction(self)
                 raise response
             elif response is None:
                 self.dialog.end_transaction(self)
