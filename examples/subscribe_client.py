@@ -39,15 +39,18 @@ async def start(app, protocol):
 
     await register_dialog.register()
 
+    client_router = aiosip.Router()
+    client_router['notify'] = show_notify
+
     subscribe_dialog = peer.create_dialog(
         from_details=aiosip.Contact.from_header(
             'sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_ip'], sip_config['local_port'])),
         to_details=aiosip.Contact.from_header(
             'sip:666@{}:{}'.format(sip_config['srv_host'], sip_config['srv_port'])),
-        password=sip_config['pwd']
+        password=sip_config['pwd'],
+        router=client_router
     )
 
-    subscribe_dialog.router['notify'] = show_notify
     await subscribe_dialog.subscribe()
     await asyncio.sleep(20)
     await subscribe_dialog.subscribe(expires=0)
