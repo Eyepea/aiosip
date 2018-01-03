@@ -3,6 +3,7 @@ import logging
 import sys
 
 import aiosip
+from aiosip.contrib import session
 
 sip_config = {
     'srv_host': 'xxxxxx',
@@ -27,13 +28,13 @@ async def on_register(dialog, message):
 
 
 async def on_subscribe(dialog, message):
-    await dialog.reply(message, status_code=200)
-
-    if int(message.headers['Expires']):
+    try:
         print('Subscription started!')
         await notify(dialog)
-    else:
-        print('Subscription ended!')
+    except asyncio.CancelledError:
+        pass
+
+    print('Subscription ended!')
 
 
 def main_tcp(app):
@@ -73,7 +74,7 @@ def main():
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
     app.dialplan.add_user('subscriber', {'REGISTER': on_register,
-                                         'SUBSCRIBE': on_subscribe})
+                                         'SUBSCRIBE': session(on_subscribe)})
 
     if len(sys.argv) > 1 and sys.argv[1] == 'tcp':
         main_tcp(app)
