@@ -27,7 +27,10 @@ async def option(dialog, request):
 
 async def start(app, protocol):
 
-    peer = await app.connect((sip_config['srv_host'], sip_config['srv_port']), protocol)
+    if protocol is aiosip.WS:
+        peer = await app.connect('ws://{}:{}'.format(sip_config['srv_host'], sip_config['srv_port']), protocol)
+    else:
+        peer = await app.connect((sip_config['srv_host'], sip_config['srv_port']), protocol)
 
     register_dialog = peer.create_dialog(
         from_details=aiosip.Contact.from_header(
@@ -63,6 +66,8 @@ def main():
 
     if len(sys.argv) > 1 and sys.argv[1] == 'tcp':
         loop.run_until_complete(start(app, aiosip.TCP))
+    elif len(sys.argv) > 1 and sys.argv[1] == 'ws':
+        loop.run_until_complete(start(app, aiosip.WS))
     else:
         loop.run_until_complete(start(app, aiosip.UDP))
 

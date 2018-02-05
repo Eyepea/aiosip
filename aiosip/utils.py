@@ -88,6 +88,13 @@ STATUS = {
 }
 
 
+def format_host_and_port(host, port):
+    uri = str(host)
+    if port is not None:
+        return uri + ':' + str(port)
+    return uri
+
+
 def gen_str(length=10, letters=string.ascii_letters+string.digits):
     return "".join([random.choice(letters) for n in range(length)])
 

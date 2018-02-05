@@ -3,3 +3,4 @@ pyquery
 twine
 wheel
 aiodns
+websockets

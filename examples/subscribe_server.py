@@ -70,6 +70,26 @@ def main_udp(app):
     print('Closing')
 
 
+def main_ws(app):
+    server = app.loop.run_until_complete(
+        app.run(
+            protocol=aiosip.WS,
+            local_addr=(sip_config['local_ip'], sip_config['local_port'])
+        )
+    )
+
+    print('Serving WS')
+
+    try:
+        app.loop.run_forever()
+    except KeyboardInterrupt:
+        pass
+
+    print('Closing')
+    server.close()
+    app.loop.run_until_complete(server.wait_closed())
+
+
 def main():
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
@@ -78,6 +98,8 @@ def main():
 
     if len(sys.argv) > 1 and sys.argv[1] == 'tcp':
         main_tcp(app)
+    elif len(sys.argv) > 1 and sys.argv[1] == 'ws':
+        main_ws(app)
     else:
         main_udp(app)
 

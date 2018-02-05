@@ -13,8 +13,8 @@ from collections import MutableMapping
 from . import __version__
 from .dialog import Dialog
 from .dialplan import Dialplan
-from .protocol import UDP, TCP
-from .peers import UDPConnector, TCPConnector
+from .protocol import UDP, TCP, WS
+from .peers import UDPConnector, TCPConnector, WSConnector
 from .contact import Contact
 
 
@@ -50,7 +50,8 @@ class Application(MutableMapping):
         self._finish_callbacks = []
         self._state = {}
         self._connectors = {UDP: UDPConnector(self, loop=loop),
-                            TCP: TCPConnector(self, loop=loop)}
+                            TCP: TCPConnector(self, loop=loop),
+                            WS: WSConnector(self, loop=loop)}
         self._middleware = middleware
 
         self.dialplan = dialplan or Dialplan()
