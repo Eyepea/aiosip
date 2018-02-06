@@ -40,7 +40,7 @@ class Peer:
 
             if self._protocol is not None:
                 LOG.debug('Closing connection for %s', self)
-                self._connector._release(self.peer_addr, self._protocol, should_close=True)
+                self._connector._release(self.peer_addr, self._protocol)
                 self._protocol = None
 
     def send_message(self, msg):
@@ -278,12 +278,12 @@ class BaseConnector:
         for peer in self._peers.values():
             peer.close()
 
-    def _release(self, peer_addr, protocol, should_close=False):
-        _protocol = self._protocols.pop(peer_addr, None)
+    def _release(self, peer_addr, protocol):
+        local_addr = protocol.transport.get_extra_info('sockname')
+        _protocol = self._protocols.pop((peer_addr, local_addr), None)
         if _protocol:
             assert _protocol == protocol
-            if should_close:
-                protocol.transport.close()
+            protocol.transport.close()
 
     async def _create_server(self, local_addr, sock):
         raise NotImplementedError()

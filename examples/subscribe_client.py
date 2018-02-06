@@ -54,6 +54,7 @@ async def start(app, protocol):
     await subscribe_dialog.subscribe()
     await asyncio.sleep(20)
     await subscribe_dialog.subscribe(expires=0)
+    peer.close()
 
 
 def main():
