@@ -51,7 +51,8 @@ async def test_notify(test_server, protocol, loop, from_details, to_details):
     assert response.status_message == 'OK'
     assert all((r.method == 'NOTIFY' for r in received_notify))
 
-    server_app.close()
+    await server_app.close()
+    await app.close()
 
 
 async def test_authentification(test_server, protocol, loop, from_details, to_details):
@@ -89,7 +90,8 @@ async def test_authentification(test_server, protocol, loop, from_details, to_de
     assert response.status_code == 200
     assert response.status_message == 'OK'
 
-    server_app.close()
+    await server_app.close()
+    await app.close()
 
 
 async def test_invite(test_server, protocol, loop, from_details, to_details):

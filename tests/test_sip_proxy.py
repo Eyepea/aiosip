@@ -47,8 +47,9 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
     assert received_request_server.payload == received_request_proxy.payload
     assert received_request_server.headers == received_request_proxy.headers
 
-    server_app.close()
-    proxy_app.close()
+    await server_app.close()
+    await proxy_app.close()
+    await app.close()
 
 
 async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_details, to_details):
@@ -109,5 +110,6 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_detail
     assert received_notify_server.payload == received_notify_proxy.payload
     assert received_notify_server.headers == received_notify_proxy.headers
 
-    server_app.close()
-    proxy_app.close()
+    await server_app.close()
+    await proxy_app.close()
+    await app.close()
