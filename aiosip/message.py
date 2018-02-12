@@ -53,9 +53,10 @@ class Message:
         self._raw_payload = None
 
         if 'Via' not in self.headers:
-            self.headers['Via'] = 'SIP/2.0/%(protocol)s '+'%s:%s;branch=%s' % (self.contact_details['uri']['host'],
-                                                                               self.contact_details['uri']['port'],
-                                                                               utils.gen_branch(10))
+            self.headers['Via'] = 'SIP/2.0/%(protocol)s ' + \
+                utils.format_host_and_port(self.contact_details['uri']['host'],
+                                           self.contact_details['uri']['port']) + \
+                ';branch=%s' % utils.gen_branch(10)
 
     @property
     def payload(self):

@@ -4,9 +4,10 @@ import time
 import uuid
 
 from collections import defaultdict
+import websockets
 
 from . import utils
-from .protocol import UDP, TCP
+from .protocol import UDP, TCP, WS
 from .contact import Contact
 
 LOG = logging.getLogger(__name__)
@@ -64,10 +65,9 @@ class Peer:
 
             contact_details = Contact(
                 {
-                    'uri': 'sip:{username}@{host}:{port};transport={protocol}'.format(
+                    'uri': 'sip:{username}@{host_and_port};transport={protocol}'.format(
                         username=from_details['uri']['user'],
-                        host=host,
-                        port=port,
+                        host_and_port=utils.format_host_and_port(host, port),
                         protocol=type(self._protocol).__name__.upper()
                     )
                 }
@@ -362,6 +362,42 @@ class UDPConnector(BaseConnector):
 
     async def _dispatch(self, protocol, peer_addr):
         local_addr = protocol.transport.get_extra_info('sockname')
+        if (peer_addr, local_addr) not in self._protocols:
+            self._protocols[(peer_addr, local_addr)] = protocol
+        return await self.create_peer(peer_addr, local_addr)
+
+
+class WSConnector(BaseConnector):
+    async def _create_connection(self, peer_addr, local_addr):
+        try:
+            return self._protocols[(peer_addr, local_addr)]
+        except KeyError:
+            websocket = await websockets.connect(peer_addr)
+            local_addr = (utils.gen_str(12) + '.invalid', None)
+            proto = WS(app=self._app, loop=self._loop,
+                       local_addr=local_addr,
+                       peer_addr=peer_addr,
+                       websocket=websocket)
+            self._protocols[(peer_addr, local_addr)] = proto
+            return proto
+
+    async def _create_server(self, local_addr, sock):
+        async def hello(websocket, path):
+            proto = WS(app=self._app, loop=self._loop,
+                       local_addr=local_addr,
+                       peer_addr=websocket.remote_address,
+                       websocket=websocket)
+            await proto.websocket_pump
+
+        try:
+            return self._servers[local_addr]
+        except KeyError:
+            server = await websockets.serve(hello, local_addr[0], local_addr[1])
+            self._servers[local_addr] = server
+            return server
+
+    async def _dispatch(self, protocol, peer_addr):
+        local_addr = protocol.local_addr
         if (peer_addr, local_addr) not in self._protocols:
             self._protocols[(peer_addr, local_addr)] = protocol
         return await self.create_peer(peer_addr, local_addr)
