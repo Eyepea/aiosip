@@ -37,15 +37,15 @@ async def on_subscribe(dialog, message):
     print('Subscription ended!')
 
 
-def main_tcp(app):
-    server = app.loop.run_until_complete(
+def start(app, protocol):
+    app.loop.run_until_complete(
         app.run(
-            protocol=aiosip.TCP,
+            protocol=protocol,
             local_addr=(sip_config['local_ip'], sip_config['local_port'])
         )
     )
 
-    print('Serving on {} TCP'.format(server.sockets[0].getsockname()))
+    print('Serving on {} {}'.format((sip_config['local_ip'], sip_config['local_port']), protocol))
 
     try:
         app.loop.run_forever()
@@ -53,41 +53,7 @@ def main_tcp(app):
         pass
 
     print('Closing')
-    server.close()
-    app.loop.run_until_complete(server.wait_closed())
-
-
-def main_udp(app):
-    app.loop.run_until_complete(app.run(local_addr=(sip_config['local_ip'], sip_config['local_port'])))
-
-    print('Serving on {} UDP'.format((sip_config['local_ip'], sip_config['local_port'])))
-
-    try:
-        app.loop.run_forever()
-    except KeyboardInterrupt:
-        pass
-
-    print('Closing')
-
-
-def main_ws(app):
-    server = app.loop.run_until_complete(
-        app.run(
-            protocol=aiosip.WS,
-            local_addr=(sip_config['local_ip'], sip_config['local_port'])
-        )
-    )
-
-    print('Serving WS')
-
-    try:
-        app.loop.run_forever()
-    except KeyboardInterrupt:
-        pass
-
-    print('Closing')
-    server.close()
-    app.loop.run_until_complete(server.wait_closed())
+    app.loop.run_until_complete(app.close())
 
 
 def main():
@@ -97,13 +63,13 @@ def main():
                                          'SUBSCRIBE': session(on_subscribe)})
 
     if len(sys.argv) > 1 and sys.argv[1] == 'tcp':
-        main_tcp(app)
+        start(app, aiosip.TCP)
     elif len(sys.argv) > 1 and sys.argv[1] == 'ws':
-        main_ws(app)
+        start(app, aiosip.WS)
     else:
-        main_udp(app)
+        start(app, aiosip.UDP)
 
-    # loop.close()
+    loop.close()
 
 
 if __name__ == '__main__':

@@ -132,9 +132,9 @@ class Application(MutableMapping):
     def register_on_finish(self, func, *args, **kwargs):
         self._finish_callbacks.insert(0, (func, args, kwargs))
 
-    def close(self):
+    async def close(self):
         for connector in self._connectors.values():
-            connector.close()
+            await connector.close()
 
     # def __repr__(self):
     #     return "<Application>"

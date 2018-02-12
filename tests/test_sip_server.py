@@ -31,7 +31,8 @@ async def test_subscribe(test_server, protocol, loop, from_details, to_details):
     assert response.status_message == 'OK'
     assert received_request.method == 'SUBSCRIBE'
 
-    server_app.close()
+    await server_app.close()
+    await app.close()
 
 
 async def test_response_404(test_server, protocol, loop, from_details, to_details):
@@ -51,7 +52,9 @@ async def test_response_404(test_server, protocol, loop, from_details, to_detail
     response = await subscribe_dialog.subscribe()
     assert response.status_code == 404
     assert response.status_message == 'Not Found'
-    server_app.close()
+
+    await server_app.close()
+    await app.close()
 
 
 async def test_response_501(test_server, protocol, loop, from_details, to_details):
@@ -72,7 +75,9 @@ async def test_response_501(test_server, protocol, loop, from_details, to_detail
     response = await subscribe_dialog.subscribe()
     assert response.status_code == 501
     assert response.status_message == 'Not Implemented'
-    server_app.close()
+
+    await server_app.close()
+    await app.close()
 
 
 async def test_exception_in_handler(test_server, protocol, loop, from_details, to_details):
@@ -100,4 +105,6 @@ async def test_exception_in_handler(test_server, protocol, loop, from_details, t
 
     assert response.status_code == 500
     assert response.status_message == 'Server Internal Error'
-    server_app.close()
+
+    await server_app.close()
+    await app.close()

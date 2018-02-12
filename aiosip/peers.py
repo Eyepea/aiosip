@@ -274,9 +274,13 @@ class BaseConnector:
         if peer:
             peer.close()
 
-    def close(self):
+    async def close(self):
         for peer in self._peers.values():
             peer.close()
+
+        for server in self._servers.values():
+            server.close()
+            await server.wait_closed()
 
     def _release(self, peer_addr, protocol):
         local_addr = protocol.transport.get_extra_info('sockname')
@@ -325,6 +329,20 @@ class TCPConnector(BaseConnector):
         return await self.create_peer(peer_addr, local_addr)
 
 
+class UDPServer:
+    """
+    Shim to present a unified server interface.
+    """
+    def __init__(self, transport):
+        self.transport = transport
+
+    def close(self):
+        self.transport.close()
+
+    async def wait_closed(self):
+        pass
+
+
 class UDPConnector(BaseConnector):
     async def _create_connection(self, peer_addr, local_addr):
         try:
@@ -347,7 +365,7 @@ class UDPConnector(BaseConnector):
         try:
             return self._servers[local_addr]
         except KeyError:
-            _, proto = await self._loop.create_datagram_endpoint(
+            transport, proto = await self._loop.create_datagram_endpoint(
                 lambda: UDP(app=self._app, loop=self._loop),
                 sock=sock,
                 local_addr=local_addr
@@ -357,8 +375,10 @@ class UDPConnector(BaseConnector):
                 assert sock.getsockname() == proto_addr
             else:
                 assert local_addr == proto_addr
-            self._servers[local_addr] = proto
-            return proto
+
+            server = UDPServer(transport)
+            self._servers[local_addr] = server
+            return server
 
     async def _dispatch(self, protocol, peer_addr):
         local_addr = protocol.transport.get_extra_info('sockname')

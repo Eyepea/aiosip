@@ -106,7 +106,6 @@ class WS:
         self.websocket_pump = asyncio.ensure_future(self.run())
 
     def close(self):
-        self.websocket_pump.cancel()
         asyncio.ensure_future(self.websocket.close())
 
     def get_extra_info(self, key):
@@ -129,7 +128,7 @@ class WS:
             try:
                 data = await self.websocket.recv()
             except Exception:
-                return
+                break
             if isinstance(data, str):
                 data = data.encode('utf8')
             headers, data = data.split(b'\r\n\r\n', 1)
@@ -137,3 +136,6 @@ class WS:
             msg._raw_payload = data
             LOG.log(5, 'Received via %s: "%s"', self.protocol, msg)
             asyncio.ensure_future(self.app._dispatch(self, msg, self.peer_addr))
+
+        LOG.debug('Connection lost from %s', self.peer_addr)
+        self.app._connection_lost(self)
