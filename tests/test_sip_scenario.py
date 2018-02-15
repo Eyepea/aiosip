@@ -134,6 +134,9 @@ async def test_invite(test_server, protocol, loop, from_details, to_details):
     assert responses[2].status_code == 200
     assert ack.method == 'ACK'
 
+    await app.close()
+    await server_app.close()
+
 
 async def test_cancel(test_server, protocol, loop, from_details, to_details):
     subscribe_dialog = None
@@ -165,3 +168,6 @@ async def test_cancel(test_server, protocol, loop, from_details, to_details):
 
     result = await cancel_future
     assert result.method == 'CANCEL'
+
+    await app.close()
+    await server_app.close()
