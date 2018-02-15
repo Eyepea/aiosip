@@ -18,7 +18,8 @@ requirements = [
 ]
 
 test_requirements = [
-    'pytest'
+    'pytest',
+    'pytest-asyncio'
 ]
 
 setup(

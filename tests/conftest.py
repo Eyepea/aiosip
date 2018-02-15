@@ -114,3 +114,8 @@ def to_details(request):
         host='127.0.0.1',
         port=6000
     )
+
+
+@pytest.fixture
+def loop(event_loop):
+    return event_loop
