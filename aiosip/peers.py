@@ -68,7 +68,7 @@ class Peer:
                     'uri': 'sip:{username}@{host_and_port};transport={protocol}'.format(
                         username=from_details['uri']['user'],
                         host_and_port=utils.format_host_and_port(host, port),
-                        protocol=type(self._protocol).__name__.upper()
+                        protocol=type(self._protocol).__name__.lower()
                     )
                 }
             )
