@@ -9,10 +9,26 @@ from .uri import Uri
 from .utils import gen_str
 
 
-# Regex pattern from p2p-sip project
-CONTACT_PATTERNS = [re.compile('^(?P<name>[a-zA-Z0-9\-\._\+~ \t]*)<(?P<uri>[^>]+)>(?:;(?P<params>[^\?]*))?'),
-                    re.compile('^(?:"(?P<name>[^"]+)")[ \t]*<(?P<uri>[^>]+)>(?:;(?P<params>[^\?]*))?'),
-                    re.compile('^[ \t]*(?P<name>)(?P<uri>[^;]+)(?:;(?P<params>[^\?]*))?')]
+CONTACT_PATTERNS = [
+    # unquoted name
+    re.compile('^(?P<name>[a-zA-Z0-9\-\.!%\*_\+`\'~]*)'
+               '[ \t]*'
+               '<(?P<uri>[^>]+)>'
+               '[ \t]*'
+               '(?:;(?P<params>[^\?]*))?'),
+    # quoted name
+    re.compile('^(?:"(?P<name>[^"]+)")'
+               '[ \t]*'
+               '<(?P<uri>[^>]+)>'
+               '[ \t]*'
+               '(?:;(?P<params>[^\?]*))?'),
+    # no name
+    re.compile('(?P<name>)'
+               '[ \t]*'
+               '(?P<uri>[^ ;]+)'
+               '[ \t]*'
+               '(?:;(?P<params>[^\?]*))?'),
+]
 
 
 LOG = logging.getLogger(__name__)
@@ -44,13 +60,6 @@ class Contact(MutableMapping):
                 return cls(m.groupdict())
         else:
             raise ValueError('Not valid contact address')
-
-    def from_repr(self):
-        r = str(self._contact['uri'])
-        params = self._contact['params']
-        if params:
-            r += ';%s' % str(params)
-        return r
 
     def __str__(self):
         r = ''
