@@ -40,6 +40,7 @@ class Dialog:
         self._tasks = list()
         self._nonce = None
         self._closing = None
+        self._incoming = asyncio.Queue()
 
     async def receive_message(self, msg):
         if self._closing:
@@ -59,6 +60,9 @@ class Dialog:
             transaction._incoming(msg)
         except KeyError:
             LOG.debug('Response without Request. The Transaction may already be closed. \n%s', msg)
+
+    async def _queue_request(self, msg):
+        await self._incoming.put(msg)
 
     async def _receive_request(self, msg):
         self.peer._bookkeeping(msg, self.call_id)
@@ -81,7 +85,7 @@ class Dialog:
             else:
                 await self.reply(msg, status_code=501)
         else:
-            await self.reply(msg, status_code=404)
+            await self._queue_request(msg)
 
         self._maybe_close(msg)
 
@@ -328,6 +332,15 @@ class Dialog:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
+
+    async def recv(self):
+        return await self._incoming.get()
+
+    async def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        return await self.recv()
 
     def __repr__(self):
         return '<{0} call_id={1}, peer={2}>'.format(self.__class__.__name__, self.call_id, self.peer)

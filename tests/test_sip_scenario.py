@@ -5,6 +5,49 @@ import asyncio
 
 async def test_notify(test_server, protocol, loop, from_details, to_details):
     notify_list = [0, 1, 2, 3, 4]
+    subscribe_future = loop.create_future()
+
+    async def subscribe(dialog, request):
+        assert len(dialog.peer.subscriber) == 1
+        await dialog.reply(request, status_code=200)
+        await asyncio.sleep(0.1)
+
+        for i in notify_list:
+            await dialog.notify(payload=str(i))
+        subscribe_future.set_result(None)
+
+    app = aiosip.Application(loop=loop)
+    server_app = aiosip.Application(loop=loop)
+    server_app.dialplan.add_user('pytest', {'SUBSCRIBE': subscribe})
+    server = await test_server(server_app)
+
+    peer = await app.connect(
+        protocol=protocol,
+        remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
+    )
+
+    subscribe_dialog = peer.create_dialog(
+        from_details=aiosip.Contact.from_header(from_details),
+        to_details=aiosip.Contact.from_header(to_details),
+    )
+
+    response = await subscribe_dialog.subscribe(expires=1800)
+
+    for expected in notify_list:
+        request = await asyncio.wait_for(subscribe_dialog.recv(), timeout=1)
+        await subscribe_dialog.reply(request, status_code=200)
+        assert int(request.payload) == expected
+
+    await subscribe_future
+    assert response.status_code == 200
+    assert response.status_message == 'OK'
+
+    await server_app.close()
+    await app.close()
+
+
+async def test_notify_with_router(test_server, protocol, loop, from_details, to_details):
+    notify_list = [0, 1, 2, 3, 4]
     received_notify_futures = [loop.create_future() for _ in notify_list]
     subscribe_future = loop.create_future()
 
