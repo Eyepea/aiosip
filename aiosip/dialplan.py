@@ -23,7 +23,9 @@ class Dialplan:
 
 class Router(MutableMapping):
     def __init__(self, default=None):
-        self._routes = {'*': default}
+        self._routes = {}
+        if default:
+            self._routes['*'] = default
 
     # MutableMapping API
     def __eq__(self, other):
