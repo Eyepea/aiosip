@@ -54,47 +54,51 @@ class DialogSetup:
     def state(self):
         return self._state
 
-    async def receive_message(self, msg):
-        async def set_result(msg):
-            self._ack(msg)
-            if not self._waiter.done():
-                self._waiter.set_result(msg)
+    async def _set_result(self, msg):
+        self._ack(msg)
+        if not self._waiter.done():
+            self._waiter.set_result(msg)
+        await self._queue.put(msg)
+
+    async def _receive_message_calling(self, msg):
+        if 100 <= msg.status_code < 200:
+            self._state = CallState.Proceeding
+
+        elif msg.status_code == 200:
+            self._state = CallState.Terminated
+            await self._set_result(msg)
+
+        elif 300 <= msg.status_code < 700:
+            self._state = CallState.Completed
+            await self._set_result(msg)
+
+    async def _receive_message_proceeding(self, msg):
+        if 100 <= msg.status_code < 200:
             await self._queue.put(msg)
 
+        elif msg.status_code == 200:
+            self._state = CallState.Terminated
+            await self._set_result(msg)
+
+        elif 300 <= msg.status_code < 700:
+            self._state = CallState.Completed
+            await self._set_result(msg)
+
+    async def _receive_message_completed(self, msg):
+        # Any additional messages in this state MUST be acked but
+        # are NOT to be passed up
+        self._ack(msg)
+
+    async def receive_message(self, msg):
+        # TODO: sip timers and flip to Terminated after timeout
         if self._state == CallState.Calling:
-            if 100 <= msg.status_code < 200:
-                self._state = CallState.Proceeding
-
-            elif msg.status_code == 200:
-                self._state = CallState.Terminated
-                await set_result(msg)
-
-            elif 300 <= msg.status_code < 700:
-                self._state = CallState.Completed
-                await set_result(msg)
-
-            pass
+            self._receive_message_calling(msg)
 
         elif self._state == CallState.Proceeding:
-            if 100 <= msg.status_code < 200:
-                await self._queue.put(msg)
-
-            elif msg.status_code == 200:
-                self._state = CallState.Terminated
-                await set_result(msg)
-
-            elif 300 <= msg.status_code < 700:
-                self._state = CallState.Completed
-                await set_result(msg)
-
-            pass
+            self._receive_message_proceeding(msg)
 
         elif self._state == CallState.Completed:
-            # Any additional messages in this state MUST be acked but
-            # are NOT to be passed up
-            self._ack(msg)
-            # TODO: flip to Terminated after timeout
-            pass
+            self._receive_message_completed(msg)
 
         elif self._state == CallState.Terminated:
             if isinstance(msg, Response) or msg.method == 'ACK':
