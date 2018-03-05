@@ -1,5 +1,7 @@
 import asyncio
+from contextlib import suppress
 import logging
+import traceback
 
 from collections import defaultdict
 from multidict import CIMultiDict
@@ -37,6 +39,7 @@ class Dialog:
         self.router = router
         self.transactions = defaultdict(dict)
         self.callbacks = defaultdict(list)
+        self.debug = False
         self._tasks = list()
         self._nonce = None
         self._closing = None
@@ -77,7 +80,11 @@ class Dialog:
                     pass
                 except Exception as e:
                     LOG.exception(e)
-                    await self.reply(msg, status_code=500)
+                    payload = None
+                    if self.debug:
+                        with suppress(Exception):
+                            payload = traceback.format_exc()
+                    await self.reply(msg, status_code=500, payload=payload)
             else:
                 await self.reply(msg, status_code=501)
         else:
