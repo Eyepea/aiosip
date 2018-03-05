@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import random
 import sys
@@ -16,52 +17,34 @@ sip_config = {
 }
 
 
-async def show_notify(dialog, request):
-    print('NOTIFY:', request.payload)
-    await dialog.reply(request, status_code=200)
-
-
 async def option(dialog, request):
     await dialog.reply(request, status_code=200)
 
 
-async def start(app, protocol):
+async def run_subscription(peer):
+    subscription = await peer.subscribe(
+        from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
+            sip_config['user'], sip_config['local_host'],
+            sip_config['local_port'])),
+        to_details=aiosip.Contact.from_header('sip:666@{}:{}'.format(
+            sip_config['srv_host'], sip_config['srv_port'])),
+        password=sip_config['pwd'])
 
+    async for request in subscription:
+        print('NOTIFY:', request.payload)
+        await subscription.reply(request, status_code=200)
+
+
+async def start(app, protocol):
     if protocol is aiosip.WS:
-        peer = await app.connect('ws://{}:{}'.format(sip_config['srv_host'], sip_config['srv_port']), protocol)
+        peer = await app.connect('ws://{}:{}'.format(
+            sip_config['srv_host'], sip_config['srv_port']), protocol)
     else:
         peer = await app.connect(
-            (sip_config['srv_host'], sip_config['srv_port']),
-            protocol=protocol,
-            local_addr=(sip_config['local_host'], sip_config['local_port'])
-        )
+            (sip_config['srv_host'], sip_config['srv_port']), protocol)
 
-    register_dialog = peer.create_dialog(
-        from_details=aiosip.Contact.from_header(
-            'sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_host'], sip_config['local_port'])),
-        to_details=aiosip.Contact.from_header(
-            'sip:{}@{}:{}'.format(sip_config['user'], sip_config['srv_host'], sip_config['srv_port'])),
-        password=sip_config['pwd'],
-    )
-
-    await register_dialog.register()
-
-    client_router = aiosip.Router()
-    client_router['notify'] = show_notify
-
-    subscribe_dialog = peer.create_dialog(
-        from_details=aiosip.Contact.from_header(
-            'sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_host'], sip_config['local_port'])),
-        to_details=aiosip.Contact.from_header(
-            'sip:666@{}:{}'.format(sip_config['srv_host'], sip_config['srv_port'])),
-        password=sip_config['pwd'],
-        router=client_router
-    )
-
-    await subscribe_dialog.subscribe()
-    await asyncio.sleep(20)
-    await subscribe_dialog.subscribe(expires=0)
-
+    with contextlib.suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(run_subscription(peer), timeout=5)
     await app.close()
 
 

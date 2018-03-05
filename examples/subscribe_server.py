@@ -41,11 +41,10 @@ def start(app, protocol):
     app.loop.run_until_complete(
         app.run(
             protocol=protocol,
-            local_addr=(sip_config['local_ip'], sip_config['local_port'])
-        )
-    )
+            local_addr=(sip_config['local_ip'], sip_config['local_port'])))
 
-    print('Serving on {} {}'.format((sip_config['local_ip'], sip_config['local_port']), protocol))
+    print('Serving on {} {}'.format(
+        (sip_config['local_ip'], sip_config['local_port']), protocol))
 
     try:
         app.loop.run_forever()
@@ -59,8 +58,10 @@ def start(app, protocol):
 def main():
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
-    app.dialplan.add_user('subscriber', {'REGISTER': on_register,
-                                         'SUBSCRIBE': session(on_subscribe)})
+    app.dialplan.add_user('subscriber', {
+        'REGISTER': on_register,
+        'SUBSCRIBE': session(on_subscribe)
+    })
 
     if len(sys.argv) > 1 and sys.argv[1] == 'tcp':
         start(app, aiosip.TCP)

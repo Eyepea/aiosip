@@ -26,12 +26,11 @@ async def test_notify(test_server, protocol, loop, from_details, to_details):
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
-    subscribe_dialog = peer.create_dialog(
+    subscribe_dialog = await peer.subscribe(
+        expires=1800,
         from_details=aiosip.Contact.from_header(from_details),
         to_details=aiosip.Contact.from_header(to_details),
     )
-
-    response = await subscribe_dialog.subscribe(expires=1800)
 
     for expected in notify_list:
         request = await asyncio.wait_for(subscribe_dialog.recv(), timeout=1)
@@ -39,8 +38,6 @@ async def test_notify(test_server, protocol, loop, from_details, to_details):
         assert int(request.payload) == expected
 
     await subscribe_future
-    assert response.status_code == 200
-    assert response.status_message == 'OK'
 
     await server_app.close()
     await app.close()
@@ -77,21 +74,18 @@ async def test_notify_with_router(test_server, protocol, loop, from_details, to_
     client_router = aiosip.Router()
     client_router['notify'] = notify
 
-    subscribe_dialog = peer.create_dialog(
+    await peer.subscribe(
+        expires=1800,
         from_details=aiosip.Contact.from_header(from_details),
         to_details=aiosip.Contact.from_header(to_details),
         router=client_router
     )
-
-    response = await subscribe_dialog.subscribe(expires=1800)
 
     done, pending = await asyncio.wait(received_notify_futures, return_when=asyncio.ALL_COMPLETED, timeout=1)
     received_notify = [f.result() for f in done]
     assert len(pending) == 0
 
     await subscribe_future
-    assert response.status_code == 200
-    assert response.status_message == 'OK'
     assert all((r.method == 'NOTIFY' for r in received_notify))
 
     await server_app.close()
@@ -120,18 +114,15 @@ async def test_authentification(test_server, protocol, loop, from_details, to_de
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
-    subscribe_dialog = peer.create_dialog(
+    await peer.subscribe(
+        expires=1800,
         from_details=aiosip.Contact.from_header(from_details),
         to_details=aiosip.Contact.from_header(to_details),
         password=password
     )
 
-    response = await subscribe_dialog.subscribe(expires=1800)
-
     assert len(received_request) == 2
     assert 'Authorization' in received_request[1].headers
-    assert response.status_code == 200
-    assert response.status_message == 'OK'
 
     await server_app.close()
     await app.close()
@@ -158,7 +149,7 @@ async def test_invite(test_server, protocol, loop, from_details, to_details):
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
-    invite_dialog = peer.create_dialog(
+    invite_dialog = peer._create_dialog(
         from_details=aiosip.Contact.from_header(from_details),
         to_details=aiosip.Contact.from_header(to_details),
     )
@@ -182,11 +173,10 @@ async def test_invite(test_server, protocol, loop, from_details, to_details):
 
 
 async def test_cancel(test_server, protocol, loop, from_details, to_details):
-    subscribe_dialog = None
     cancel_future = loop.create_future()
 
     async def subscribe(dialog, request):
-        subscribe_dialog.close()
+        pending_subscription.cancel()
 
     async def cancel(dialog, request):
         cancel_future.set_result(request)
@@ -201,13 +191,13 @@ async def test_cancel(test_server, protocol, loop, from_details, to_details):
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
-    subscribe_dialog = peer.create_dialog(
+    pending_subscription = asyncio.ensure_future(peer.subscribe(
         from_details=aiosip.Contact.from_header(from_details),
         to_details=aiosip.Contact.from_header(to_details),
-    )
+    ))
 
     with pytest.raises(asyncio.CancelledError):
-        await subscribe_dialog.subscribe()
+        await pending_subscription
 
     result = await cancel_future
     assert result.method == 'CANCEL'
