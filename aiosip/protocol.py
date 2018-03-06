@@ -23,6 +23,9 @@ class UDP(asyncio.DatagramProtocol):
         LOG.log(5, 'Sending to: "%s" via UDP: "%s"', addr, msg)
         self.transport.sendto(msg.encode(), addr)
 
+    def connection_lost(self, error):
+        self.app._connection_lost(self)
+
     def connection_made(self, transport):
         self.transport = transport
         self.ready.set_result(self.transport)
@@ -36,12 +39,6 @@ class UDP(asyncio.DatagramProtocol):
         msg._raw_payload = data
         LOG.log(5, 'Received from "%s" via UDP: "%s"', addr, msg)
         asyncio.ensure_future(self.app._dispatch(self, msg, addr))
-
-    # def error_received(self, exc):
-    #     print('Error received:', exc)
-    #
-    # def connection_lost(self, exc):
-    #     print("Socket closed, stop the event loop")
 
 
 class TCP(asyncio.Protocol):
@@ -60,6 +57,9 @@ class TCP(asyncio.Protocol):
 
         LOG.log(5, 'Sent via TCP: "%s"', msg)
         self.transport.write(msg.encode())
+
+    def connection_lost(self, error):
+        self.app._connection_lost(self)
 
     def connection_made(self, transport):
         peer = transport.get_extra_info('peername')
@@ -81,14 +81,6 @@ class TCP(asyncio.Protocol):
             # assert len(msg._raw_payload) == int(msg.headers['Content-Length'])
             LOG.log(5, 'Received via TCP: "%s"', msg)
             asyncio.ensure_future(self.app._dispatch(self, msg, None))
-
-    # def error_received(self, exc):
-    #     print('Error received:', exc)
-
-    def connection_lost(self, error):
-        LOG.debug('Connection lost from %s: %s', self.transport.get_extra_info('peername'), error)
-        super().connection_lost(error)
-        self.app._connection_lost(self)
 
 
 class WS:
@@ -137,5 +129,5 @@ class WS:
             LOG.log(5, 'Received via %s: "%s"', self.protocol, msg)
             asyncio.ensure_future(self.app._dispatch(self, msg, self.peer_addr))
 
-        LOG.debug('Connection lost from %s', self.peer_addr)
+        await self.websocket.close()
         self.app._connection_lost(self)

@@ -14,35 +14,26 @@ LOG = logging.getLogger(__name__)
 
 
 class Peer:
-    def __init__(self, peer_addr, app, connector, *, loop=None):
+    def __init__(self, peer_addr, app, *, loop=None):
         self.peer_addr = peer_addr
         self.registered = {}
         self.subscriber = defaultdict(dict)
         self._app = app
-        self._connector = connector
         self._protocol = None
         self._loop = loop
         self._dialogs = {}
         self._connected_future = asyncio.Future(loop=loop)
-        self.closed = False
+        self._disconnected_future = asyncio.Future(loop=loop)
 
     @property
     def dialogs(self):
         return self._dialogs
 
-    def close(self):
-        if not self.closed:
-            self.closed = True
-            self.registered = {}
-            self.subscriber = defaultdict(dict)
-            for dialog in self._dialogs.values():
-                dialog._close()
-            self._dialogs = {}
-
-            if self._protocol is not None:
-                LOG.debug('Closing connection for %s', self)
-                self._connector._release(self.peer_addr, self._protocol)
-                self._protocol = None
+    async def close(self):
+        if self._protocol is not None:
+            LOG.debug('Closing connection for %s', self)
+            self._protocol.transport.close()
+            await self._disconnected_future
 
     def send_message(self, msg):
         self._protocol.send_message(msg, addr=self.peer_addr)
@@ -183,12 +174,6 @@ class Peer:
         for v in to_del:
             del self.subscriber[v[0]][v[1]]
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
-
     @property
     def protocol(self):
         return type(self._protocol)
@@ -205,6 +190,19 @@ class Peer:
             assert self._protocol == protocol
         else:
             self._protocol = protocol
+
+    def _disconnected(self):
+        LOG.debug('Lost connection for %s', self)
+
+        for dialog in self._dialogs.values():
+            dialog._close()
+        self._dialogs = {}
+
+        self.registered = {}
+        self.subscriber = defaultdict(dict)
+
+        self._protocol = None
+        self._disconnected_future.set_result(None)
 
     @property
     def local_addr(self):
@@ -253,7 +251,7 @@ class BaseConnector:
             return peer
 
     def _create_peer(self, peer_addr):
-        peer = Peer(peer_addr, self._app, self, loop=self._loop)
+        peer = Peer(peer_addr, self._app, loop=self._loop)
         self._peers[(peer_addr, None)] = peer
         return peer
 
@@ -268,26 +266,23 @@ class BaseConnector:
         return await self._dispatch(protocol, peer_addr)
 
     def connection_lost(self, protocol):
-        peer_addr = protocol.transport.get_extra_info('peername')
-        local_addr = protocol.transport.get_extra_info('sockname')
-        peer = self._peers.pop((peer_addr, local_addr), None)
-        if peer:
-            peer.close()
+        for key, peer in list(self._peers.items()):
+            if peer._protocol == protocol:
+                peer._disconnected()
+                self._peers.pop(key)
+
+        for key, proto in list(self._protocols.items()):
+            if proto == protocol:
+                self._protocols.pop(key)
 
     async def close(self):
-        for peer in self._peers.values():
-            peer.close()
+        for peer in list(self._peers.values()):
+            await peer.close()
 
         for server in self._servers.values():
             server.close()
             await server.wait_closed()
-
-    def _release(self, peer_addr, protocol):
-        local_addr = protocol.transport.get_extra_info('sockname')
-        _protocol = self._protocols.pop((peer_addr, local_addr), None)
-        if _protocol:
-            assert _protocol == protocol
-            protocol.transport.close()
+        self._servers = {}
 
     async def _create_server(self, local_addr, sock):
         raise NotImplementedError()
