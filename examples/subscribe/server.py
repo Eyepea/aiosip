@@ -22,11 +22,6 @@ async def notify(dialog):
         await asyncio.sleep(1)
 
 
-async def on_register(dialog, message):
-    await dialog.reply(message, status_code=200)
-    print('Registration successful')
-
-
 async def on_subscribe(dialog, message):
     try:
         print('Subscription started!')
@@ -59,7 +54,6 @@ def main():
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
     app.dialplan.add_user('subscriber', {
-        'REGISTER': on_register,
         'SUBSCRIBE': session(on_subscribe)
     })
 
