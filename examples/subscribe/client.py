@@ -37,14 +37,19 @@ async def run_subscription(peer):
 
 async def start(app, protocol):
     if protocol is aiosip.WS:
-        peer = await app.connect('ws://{}:{}'.format(
-            sip_config['srv_host'], sip_config['srv_port']), protocol)
+        peer = await app.connect(
+            'ws://{}:{}'.format(sip_config['srv_host'], sip_config['srv_port']),
+            protocol=protocol,
+            local_addr=(sip_config['local_host'], sip_config['local_port']))
     else:
         peer = await app.connect(
-            (sip_config['srv_host'], sip_config['srv_port']), protocol)
+            (sip_config['srv_host'], sip_config['srv_port']),
+            protocol=protocol,
+            local_addr=(sip_config['local_host'], sip_config['local_port']))
 
     with contextlib.suppress(asyncio.TimeoutError):
         await asyncio.wait_for(run_subscription(peer), timeout=5)
+
     await app.close()
 
 
