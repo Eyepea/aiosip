@@ -15,7 +15,10 @@ class Dialplan:
     async def resolve(self, username, protocol, local_addr, remote_addr):
         LOG.debug('Resolving dialplan for %s connecting on %s from %s via %s',
                   username, local_addr, remote_addr, protocol)
-        return self._users.get(username, self.default)
+        router = self._users.get(username)
+        if not router:
+            router = self._users.get('*', self.default)
+        return router
 
     def add_user(self, username, router):
         self._users[username] = router
