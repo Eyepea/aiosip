@@ -1,6 +1,6 @@
+import argparse
 import asyncio
 import logging
-import sys
 
 import aiosip
 from aiosip.contrib import session
@@ -51,18 +51,24 @@ def start(app, protocol):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', '--protocol', default='udp')
+    args = parser.parse_args()
+
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
     app.dialplan.add_user('subscriber', {
         'SUBSCRIBE': session(on_subscribe)
     })
 
-    if len(sys.argv) > 1 and sys.argv[1] == 'tcp':
+    if args.protocol == 'udp':
+        start(app, aiosip.UDP)
+    elif args.protocol == 'tcp':
         start(app, aiosip.TCP)
-    elif len(sys.argv) > 1 and sys.argv[1] == 'ws':
+    elif args.protocol == 'ws':
         start(app, aiosip.WS)
     else:
-        start(app, aiosip.UDP)
+        raise RuntimeError("Unsupported protocol: {}".format(args.protocol))
 
     loop.close()
 
