@@ -311,7 +311,8 @@ class TCPConnector(BaseConnector):
             transport, proto = await self._loop.create_connection(
                 lambda: TCP(app=self._app, loop=self._loop),
                 host=peer_addr[0],
-                port=peer_addr[1])
+                port=peer_addr[1],
+                local_addr=local_addr)
             local_addr = transport.get_extra_info('sockname')
             self._protocols[(peer_addr, local_addr)] = proto
             return proto
@@ -345,6 +346,7 @@ class UDPConnector(BaseConnector):
         except KeyError:
             transport, proto = await self._loop.create_datagram_endpoint(
                 lambda: UDP(app=self._app, loop=self._loop),
+                local_addr=local_addr,
                 remote_addr=peer_addr
             )
             local_addr = transport.get_extra_info('sockname')

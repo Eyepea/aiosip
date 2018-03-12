@@ -68,9 +68,9 @@ class Application(MutableMapping):
         for peer in self.peers:
             yield from peer._dialogs.values()
 
-    async def connect(self, remote_addr, protocol=UDP):
+    async def connect(self, remote_addr, protocol=UDP, *, local_addr=None):
         connector = self._connectors[protocol]
-        peer = await connector.create_peer(remote_addr)
+        peer = await connector.create_peer(remote_addr, local_addr=local_addr)
         return peer
 
     async def run(self, *, local_addr=None, protocol=UDP, sock=None):
