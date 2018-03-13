@@ -38,8 +38,8 @@ class Peer:
     def send_message(self, msg):
         self._protocol.send_message(msg, addr=self.peer_addr)
 
-    def create_dialog(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
-                      router=None):
+    def _create_dialog(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
+                       router=None):
 
         if not call_id:
             call_id = str(uuid.uuid4())
@@ -79,6 +79,40 @@ class Peer:
         self._dialogs[call_id] = dialog
         return dialog
 
+    async def subscribe(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
+                        router=None, expires=3600):
+        dialog = self._create_dialog(from_details=from_details,
+                                     to_details=to_details,
+                                     contact_details=contact_details,
+                                     password=password,
+                                     call_id=call_id, cseq=cseq,
+                                     router=router)
+        try:
+            response = await dialog._subscribe(expires=expires)
+            dialog.status_code = response.status_code
+            dialog.status_message = response.status_message
+            return dialog
+        except asyncio.CancelledError:
+            dialog.cancel()
+            raise
+
+    async def register(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
+                       router=None, expires=3600):
+        dialog = self._create_dialog(from_details=from_details,
+                                     to_details=to_details,
+                                     contact_details=contact_details,
+                                     password=password,
+                                     call_id=call_id, cseq=cseq,
+                                     router=router)
+        try:
+            response = await dialog._register(expires=expires)
+            dialog.status_code = response.status_code
+            dialog.status_message = response.status_message
+            return dialog
+        except asyncio.CancelledError:
+            dialog.cancel()
+            raise
+
     async def proxy_request(self, dialog, msg, timeout=5):
         if msg.method == 'ACK':
             self.send_message(msg)
@@ -92,7 +126,7 @@ class Peer:
                     local_addr=dialog.peer.local_addr,
                     remote_addr=dialog.peer.peer_addr
             )
-            proxy_dialog = self.create_dialog(
+            proxy_dialog = self._create_dialog(
                 from_details=dialog.from_details,
                 to_details=dialog.to_details,
                 call_id=dialog.call_id,

@@ -277,7 +277,7 @@ class Dialog:
         for task in self._tasks:
             task.cancel()
 
-    async def register(self, headers=None, expires=1800, *args, **kwargs):
+    async def _register(self, headers=None, expires=1800, *args, **kwargs):
         headers = CIMultiDict(headers or {})
 
         if 'Allow' not in headers:
@@ -291,7 +291,7 @@ class Dialog:
 
         return await self.request('REGISTER', headers=headers, *args, **kwargs)
 
-    async def subscribe(self, headers=None, expires=1800, *args, **kwargs):
+    async def _subscribe(self, headers=None, expires=1800, *args, **kwargs):
         headers = CIMultiDict(headers or {})
 
         if 'Event' not in headers:

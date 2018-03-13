@@ -32,17 +32,15 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
         remote_addr=(proxy.sip_config['server_host'], proxy.sip_config['server_port'])
     )
 
-    subscribe_dialog = peer.create_dialog(
+    await peer.subscribe(
+        expires=1800,
         from_details=aiosip.Contact.from_header(from_details),
         to_details=aiosip.Contact.from_header(to_details),
     )
 
-    response = await subscribe_dialog.subscribe(expires=1800)
     received_request_server = await asyncio.wait_for(callback_complete, timeout=2)
     received_request_proxy = await asyncio.wait_for(callback_complete_proxy, timeout=2)
 
-    assert response.status_code == 200
-    assert response.status_message == 'OK'
     assert received_request_server.method == 'SUBSCRIBE'
     assert received_request_server.payload == received_request_proxy.payload
     assert received_request_server.headers == received_request_proxy.headers
@@ -90,19 +88,15 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_detail
     client_router = aiosip.Router()
     client_router['notify'] = notify
 
-    subscribe_dialog = peer.create_dialog(
+    await peer.subscribe(
+        expires=1800,
         from_details=aiosip.Contact.from_header(from_details),
         to_details=aiosip.Contact.from_header(to_details),
         router=client_router
     )
 
-    response = await subscribe_dialog.subscribe(expires=1800)
-
     received_notify_server = await asyncio.wait_for(callback_complete, timeout=2)
     received_notify_proxy = await asyncio.wait_for(callback_complete_proxy, timeout=2)
-
-    assert response.status_code == 200
-    assert response.status_message == 'OK'
 
     assert received_notify_server.method == 'NOTIFY'
     assert received_notify_server.payload == '1'

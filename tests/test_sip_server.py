@@ -19,16 +19,14 @@ async def test_subscribe(test_server, protocol, loop, from_details, to_details):
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
-    subscribe_dialog = peer.create_dialog(
+    await peer.subscribe(
+        expires=1800,
         from_details=aiosip.Contact.from_header(from_details),
         to_details=aiosip.Contact.from_header(to_details),
     )
 
-    response = await subscribe_dialog.subscribe(expires=1800)
     received_request = await callback_complete
 
-    assert response.status_code == 200
-    assert response.status_message == 'OK'
     assert received_request.method == 'SUBSCRIBE'
 
     await server_app.close()
@@ -45,14 +43,13 @@ async def test_response_501(test_server, protocol, loop, from_details, to_detail
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
-    subscribe_dialog = peer.create_dialog(
+    subscription = await peer.subscribe(
         from_details=aiosip.Contact.from_header(from_details),
         to_details=aiosip.Contact.from_header(to_details),
     )
 
-    response = await subscribe_dialog.subscribe()
-    assert response.status_code == 501
-    assert response.status_message == 'Not Implemented'
+    assert subscription.status_code == 501
+    assert subscription.status_message == 'Not Implemented'
 
     await server_app.close()
     await app.close()
@@ -74,15 +71,13 @@ async def test_exception_in_handler(test_server, protocol, loop, from_details, t
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
-    subscribe_dialog = peer.create_dialog(
+    subscription = await peer.subscribe(
         from_details=aiosip.Contact.from_header(from_details),
         to_details=aiosip.Contact.from_header(to_details),
     )
 
-    response = await subscribe_dialog.subscribe()
-
-    assert response.status_code == 500
-    assert response.status_message == 'Server Internal Error'
+    assert subscription.status_code == 500
+    assert subscription.status_message == 'Server Internal Error'
 
     await server_app.close()
     await app.close()
