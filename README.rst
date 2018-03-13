@@ -15,7 +15,8 @@ aiosip
 
 SIP support for AsyncIO written in pure Python.
 
-**Warning: SIP knowledge is necessary to use this library.**
+**Warning: SIP knowledge is necessary to use this library. The public
+API is currently very unstable.**
 
 See **examples/** folder for examples.
 
