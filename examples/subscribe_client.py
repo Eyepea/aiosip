@@ -11,7 +11,7 @@ sip_config = {
     'realm': 'XXXXXX',
     'user': 'subscriber',
     'pwd': 'hunter2',
-    'local_ip': '127.0.0.1',
+    'local_host': '127.0.0.1',
     'local_port': random.randint(6001, 6100)
 }
 
@@ -30,11 +30,15 @@ async def start(app, protocol):
     if protocol is aiosip.WS:
         peer = await app.connect('ws://{}:{}'.format(sip_config['srv_host'], sip_config['srv_port']), protocol)
     else:
-        peer = await app.connect((sip_config['srv_host'], sip_config['srv_port']), protocol)
+        peer = await app.connect(
+            (sip_config['srv_host'], sip_config['srv_port']),
+            protocol=protocol,
+            local_addr=(sip_config['local_host'], sip_config['local_port'])
+        )
 
     register_dialog = peer.create_dialog(
         from_details=aiosip.Contact.from_header(
-            'sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_ip'], sip_config['local_port'])),
+            'sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_host'], sip_config['local_port'])),
         to_details=aiosip.Contact.from_header(
             'sip:{}@{}:{}'.format(sip_config['user'], sip_config['srv_host'], sip_config['srv_port'])),
         password=sip_config['pwd'],
@@ -47,7 +51,7 @@ async def start(app, protocol):
 
     subscribe_dialog = peer.create_dialog(
         from_details=aiosip.Contact.from_header(
-            'sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_ip'], sip_config['local_port'])),
+            'sip:{}@{}:{}'.format(sip_config['user'], sip_config['local_host'], sip_config['local_port'])),
         to_details=aiosip.Contact.from_header(
             'sip:666@{}:{}'.format(sip_config['srv_host'], sip_config['srv_port'])),
         password=sip_config['pwd'],
