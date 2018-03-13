@@ -5,6 +5,8 @@ import sys
 import asyncio
 import logging
 import aiodns
+from contextlib import suppress
+import traceback
 
 __all__ = ['Application']
 
@@ -34,6 +36,7 @@ class Application(MutableMapping):
                  dialog_factory=Dialog,
                  middleware=(),
                  defaults=None,
+                 debug=False,
                  dialplan=None,
                  dns_resolver=aiodns.DNSResolver()
                  ):
@@ -46,6 +49,7 @@ class Application(MutableMapping):
         else:
             self.defaults = DEFAULTS
 
+        self.debug = debug
         self.dns = dns_resolver
         self._finish_callbacks = []
         self._state = {}
@@ -53,6 +57,7 @@ class Application(MutableMapping):
                             TCP: TCPConnector(self, loop=loop),
                             WS: WSConnector(self, loop=loop)}
         self._middleware = middleware
+        self._tasks = list()
 
         self.dialplan = dialplan or Dialplan()
         self.dialog_factory = dialog_factory
@@ -86,30 +91,93 @@ class Application(MutableMapping):
         server = await connector.create_server(local_addr, sock)
         return server
 
+    async def _call_route(self, peer, route, msg):
+        for middleware_factory in reversed(self._middleware):
+            route = await middleware_factory(route)
+
+        call_id = msg.headers['Call-ID']
+
+        class Request:
+            def __init__(self):
+                self.dialog = None
+
+            def _create_dialog(self):
+                if not self.dialog:
+                    self.dialog = peer._create_dialog(
+                        from_details=Contact.from_header(msg.headers['To']),
+                        to_details=Contact.from_header(msg.headers['From']),
+                        call_id=call_id
+                    )
+                return self.dialog
+
+            async def prepare(self, status_code, *args, **kwargs):
+                dialog = self._create_dialog()
+
+                await dialog.reply(msg, status_code, *args, **kwargs)
+                if status_code >= 300:
+                    dialog.close()
+                    return None
+
+                return dialog
+
+        request = Request()
+        await route(request, msg)
+
     async def _dispatch(self, protocol, msg, addr):
         connector = self._connectors[type(protocol)]
         peer = await connector.get_peer(protocol, addr)
         key = msg.headers['Call-ID']
+
         dialog = peer._dialogs.get(key)
-        if not dialog:
-            router = await self.dialplan.resolve(
-                username=msg.from_details['uri']['user'],
-                protocol=peer.protocol,
-                local_addr=peer.local_addr,
-                remote_addr=peer.peer_addr
-            )
+        if dialog:
+            await dialog.receive_message(msg)
+            return
+
+        router = await self.dialplan.resolve(
+            username=msg.from_details['uri']['user'],
+            protocol=peer.protocol,
+            local_addr=peer.local_addr,
+            remote_addr=peer.peer_addr
+        )
+
+        async def reply(*args, **kwargs):
             dialog = peer._create_dialog(
                 from_details=Contact.from_header(msg.headers['To']),
                 to_details=Contact.from_header(msg.headers['From']),
-                password=None,
-                call_id=msg.headers['Call-ID'],
-                router=router
+                call_id=key
             )
-        await dialog.receive_message(msg)
+
+            await dialog.reply(*args, **kwargs)
+            dialog.close()
+
+        if not router:
+            await reply(msg, status_code=501)
+            return
+
+        route = router.get(msg.method)
+        if not route:
+            await reply(msg, status_code=501)
+            return
+
+        try:
+            t = asyncio.ensure_future(self._call_route(peer, route, msg))
+            self._tasks.append(t)
+            await t
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            LOG.exception(e)
+            payload = None
+            if self.debug:
+                with suppress(Exception):
+                    payload = traceback.format_exc()
+            await reply(msg, status_code=500, payload=payload)
 
     def _connection_lost(self, protocol):
         connector = self._connectors[type(protocol)]
         connector.connection_lost(protocol)
+        # for task in self._tasks:
+        #     task.cancel()
 
     @asyncio.coroutine
     def finish(self):
@@ -135,6 +203,8 @@ class Application(MutableMapping):
     async def close(self):
         for connector in self._connectors.values():
             await connector.close()
+        for task in self._tasks:
+            task.cancel()
 
     # def __repr__(self):
     #     return "<Application>"

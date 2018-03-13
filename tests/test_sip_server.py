@@ -4,9 +4,9 @@ import aiosip
 async def test_subscribe(test_server, protocol, loop, from_details, to_details):
     callback_complete = loop.create_future()
 
-    async def handler(dialog, request):
-        await dialog.reply(request, status_code=200)
-        callback_complete.set_result(request)
+    async def handler(request, message):
+        await request.prepare(status_code=200)
+        callback_complete.set_result(message)
 
     app = aiosip.Application(loop=loop)
 
@@ -56,7 +56,6 @@ async def test_response_501(test_server, protocol, loop, from_details, to_detail
 
 
 async def test_exception_in_handler(test_server, protocol, loop, from_details, to_details):
-
     async def handler(dialog, request):
         raise RuntimeError('TestError')
 
