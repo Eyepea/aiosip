@@ -31,6 +31,7 @@ Features tested on production
 * REGISTER
 * NOTIFY
 * SUBSCRIBE
+* INVITE
 * MESSAGE
 
 Missing features

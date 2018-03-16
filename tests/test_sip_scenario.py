@@ -83,15 +83,22 @@ async def test_authentication(test_server, protocol, loop, from_details, to_deta
 
 
 async def test_invite(test_server, protocol, loop, from_details, to_details):
-    ack_future = loop.create_future()
+    call_established = loop.create_future()
+    call_disconnected = loop.create_future()
 
-    async def invite(request, msg):
-        await request.prepare(status_code=100)
+    async def invite(request, message):
+        dialog = await request.prepare(status_code=100)
         await asyncio.sleep(0.1)
-        await request.prepare(status_code=180)
+        await dialog.reply(message, status_code=180)
         await asyncio.sleep(0.1)
-        await request.prepare(status_code=200, wait_for_ack=True)
-        ack_future.set_result(None)
+        await dialog.reply(message, status_code=200)
+        call_established.set_result(None)
+
+        async for message in dialog:
+            await dialog.reply(message, 200)
+            if message.method == 'BYE':
+                call_disconnected.set_result(None)
+                break
 
     app = aiosip.Application(loop=loop, debug=True)
     server_app = aiosip.Application(loop=loop, debug=True)
@@ -103,23 +110,22 @@ async def test_invite(test_server, protocol, loop, from_details, to_details):
         remote_addr=(server.sip_config['server_host'], server.sip_config['server_port'])
     )
 
-    invite_dialog = peer._create_dialog(
+    call = await peer.invite(
         from_details=aiosip.Contact.from_header(from_details),
         to_details=aiosip.Contact.from_header(to_details),
     )
 
     responses = list()
-    async for msg in invite_dialog.invite():
+    async for msg in call.wait_for_terminate():
+        responses.append(msg.status_code)
         if msg.status_code == 200:
-            invite_dialog.ack(msg)
-        responses.append(msg)
+            await asyncio.sleep(0.1)
+            await call.close()
 
-    await ack_future
+    await call_established
+    await call_disconnected
 
-    assert len(responses) == 3
-    assert responses[0].status_code == 100
-    assert responses[1].status_code == 180
-    assert responses[2].status_code == 200
+    assert responses == [100, 180, 200]
 
     await app.close()
     await server_app.close()

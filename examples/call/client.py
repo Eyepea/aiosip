@@ -10,19 +10,15 @@ sip_config = {
     'srv_host': '127.0.0.1',
     'srv_port': 6000,
     'realm': 'XXXXXX',
-    'user': 'subscriber',
+    'user': 'aiosip',
     'pwd': 'hunter2',
     'local_host': '127.0.0.1',
     'local_port': random.randint(6001, 6100)
 }
 
 
-async def option(dialog, request):
-    await dialog.reply(request, status_code=200)
-
-
-async def run_subscription(peer, duration):
-    subscription = await peer.subscribe(
+async def run_call(peer, duration):
+    call = await peer.invite(
         from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
             sip_config['user'], sip_config['local_host'],
             sip_config['local_port'])),
@@ -30,15 +26,19 @@ async def run_subscription(peer, duration):
             sip_config['srv_host'], sip_config['srv_port'])),
         password=sip_config['pwd'])
 
-    async def reader():
-        async for request in subscription:
-            print('NOTIFY:', request.payload)
-            await subscription.reply(request, status_code=200)
+    async with call:
+        async def reader():
+            async for msg in call.wait_for_terminate():
+                print("CALL STATUS:", msg.status_code)
 
-    with contextlib.suppress(asyncio.TimeoutError):
-        await asyncio.wait_for(reader(), timeout=duration)
+            print("CALL ESTABLISHED")
+            await asyncio.sleep(5)
+            print("GOING AWAY...")
 
-    await subscription.close()
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(reader(), timeout=duration)
+
+    print("CALL TERMINATED")
 
 
 async def start(app, protocol, duration):
@@ -53,7 +53,7 @@ async def start(app, protocol, duration):
             protocol=protocol,
             local_addr=(sip_config['local_host'], sip_config['local_port']))
 
-    await run_subscription(peer, duration)
+    await run_call(peer, duration)
     await app.close()
 
 
@@ -65,7 +65,6 @@ def main():
 
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
-    app.dialplan.add_user('asterisk', option)
 
     if args.protocol == 'udp':
         loop.run_until_complete(start(app, aiosip.UDP, args.duration))

@@ -104,6 +104,7 @@ class Application(MutableMapping):
             def _create_dialog(self):
                 if not self.dialog:
                     self.dialog = peer._create_dialog(
+                        method=msg.method,
                         from_details=Contact.from_header(msg.headers['To']),
                         to_details=Contact.from_header(msg.headers['From']),
                         call_id=call_id
@@ -142,13 +143,14 @@ class Application(MutableMapping):
 
         async def reply(*args, **kwargs):
             dialog = peer._create_dialog(
+                method=msg.method,
                 from_details=Contact.from_header(msg.headers['To']),
                 to_details=Contact.from_header(msg.headers['From']),
                 call_id=key
             )
 
             await dialog.reply(*args, **kwargs)
-            dialog.close()
+            await dialog.close(fast=True)
 
         if not router:
             await reply(msg, status_code=501)
