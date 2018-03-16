@@ -1,9 +1,12 @@
 import argparse
 import asyncio
+import contextlib
 import logging
 import random
 
 import aiosip
+
+from util import Registration
 
 sip_config = {
     'srv_host': '127.0.0.1',
@@ -16,21 +19,7 @@ sip_config = {
 }
 
 
-async def run_registration(peer):
-    await peer.register(
-        from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
-            sip_config['user'], sip_config['local_host'],
-            sip_config['local_port'])),
-        to_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
-            sip_config['user'], sip_config['srv_host'],
-            sip_config['srv_port'])),
-        contact_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
-            sip_config['user'], sip_config['local_host'],
-            sip_config['local_port'])),
-        password=sip_config['pwd'])
-
-
-async def run_subscription(peer, user):
+async def run_subscription(peer, user, duration):
     subscription = await peer.subscribe(
         from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
             sip_config['user'], sip_config['local_host'],
@@ -41,15 +30,24 @@ async def run_subscription(peer, user):
 
     if subscription.status_code == 404:
         print("Subscription not found, did you forget to register it?")
+        return
     elif subscription.status_code != 200:
         print("Subscription failed, got {}".format(subscription.status_code))
-    else:
+        return
+
+    async def reader():
         async for request in subscription:
             print('NOTIFY:', request.payload)
             await subscription.reply(request, status_code=200)
 
+    with contextlib.suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(reader(), timeout=duration)
 
-async def start(app, protocol, target):
+    # TODO: needs a better API
+    await subscription._subscribe(expires=0)
+
+
+async def start(app, protocol, target, duration):
     if protocol is aiosip.WS:
         peer = await app.connect(
             'ws://{}:{}'.format(sip_config['srv_host'], sip_config['srv_port']),
@@ -61,8 +59,23 @@ async def start(app, protocol, target):
             protocol=protocol,
             local_addr=(sip_config['local_host'], sip_config['local_port']))
 
-    await run_registration(peer)
-    await run_subscription(peer, target)
+    registration = Registration(
+        peer=peer,
+        from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
+            sip_config['user'], sip_config['local_host'],
+            sip_config['local_port'])),
+        to_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
+            sip_config['user'], sip_config['srv_host'],
+            sip_config['srv_port'])),
+        contact_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
+            sip_config['user'], sip_config['local_host'],
+            sip_config['local_port'])),
+        password=sip_config['pwd']
+    )
+
+    async with registration:
+        await run_subscription(peer, target, duration)
+
     await app.close()
 
 
@@ -70,6 +83,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--protocol', default='udp')
     parser.add_argument('-u', '--user', default='client')
+    parser.add_argument('-d', '--duration', type=int, default=5)
     parser.add_argument('target')
     args = parser.parse_args()
 
@@ -79,11 +93,11 @@ def main():
     app = aiosip.Application(loop=loop)
 
     if args.protocol == 'udp':
-        client = start(app, aiosip.UDP, args.target)
+        client = start(app, aiosip.UDP, args.target, args.duration)
     elif args.protocol == 'tcp':
-        client = start(app, aiosip.TCP, args.target)
+        client = start(app, aiosip.TCP, args.target, args.duration)
     elif args.protocol == 'ws':
-        client = start(app, aiosip.WS, args.target)
+        client = start(app, aiosip.WS, args.target, args.duration)
     else:
         raise RuntimeError("Unsupported protocol: {}".format(args.protocol))
 

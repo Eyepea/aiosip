@@ -1,10 +1,12 @@
 import argparse
 import asyncio
+import itertools
 import logging
 import random
 
 import aiosip
-from aiosip.contrib import session
+
+from util import Registration
 
 sip_config = {
     'srv_host': '127.0.0.1',
@@ -18,33 +20,30 @@ sip_config = {
 
 
 async def notify(dialog):
-    for idx in range(1, 4):
+    for idx in itertools.count(1):
         await dialog.notify(payload=str(idx))
         await asyncio.sleep(1)
 
 
-async def on_subscribe(dialog, message):
-    try:
-        print('Subscription started!')
-        await notify(dialog)
-    except asyncio.CancelledError:
-        pass
+async def on_subscribe(request, message):
+    expires = int(message.headers['Expires'])
+    dialog = await request.prepare(status_code=200,
+                                   headers={'Expires': expires})
 
+    if not expires:
+        return
+
+    print('Subscription started!')
+    task = asyncio.ensure_future(notify(dialog))
+    async for message in dialog:
+        expires = int(message.headers['Expires'])
+
+        await dialog.reply(message, 200, headers={'Expires': expires})
+        if not expires:
+            break
+
+    task.cancel()
     print('Subscription ended!')
-
-
-async def run_registration(peer):
-    await peer.register(
-        from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
-            sip_config['user'], sip_config['local_host'],
-            sip_config['local_port'])),
-        to_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
-            sip_config['user'], sip_config['srv_host'],
-            sip_config['srv_port'])),
-        contact_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
-            sip_config['user'], sip_config['local_host'],
-            sip_config['local_port'])),
-        password=sip_config['pwd'])
 
 
 async def start(app, protocol):
@@ -66,7 +65,19 @@ async def start(app, protocol):
             protocol=protocol,
             local_addr=(sip_config['local_host'], sip_config['local_port']))
 
-    await run_registration(peer)
+    return Registration(
+        peer=peer,
+        from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
+            sip_config['user'], sip_config['local_host'],
+            sip_config['local_port'])),
+        to_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
+            sip_config['user'], sip_config['srv_host'],
+            sip_config['srv_port'])),
+        contact_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
+            sip_config['user'], sip_config['local_host'],
+            sip_config['local_port'])),
+        password=sip_config['pwd']
+    )
 
 
 def main():
@@ -80,7 +91,7 @@ def main():
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
     app.dialplan.add_user(args.user, {
-        'SUBSCRIBE': session(on_subscribe)
+        'SUBSCRIBE': on_subscribe
     })
 
     if args.protocol == 'udp':
@@ -92,11 +103,13 @@ def main():
     else:
         raise RuntimeError("Unsupported protocol: {}".format(args.protocol))
 
+    # TODO: refactor
+    registration = loop.run_until_complete(server)
+    loop.run_until_complete(registration.__aenter__())
     try:
-        loop.run_until_complete(server)
         loop.run_forever()
     except KeyboardInterrupt:
-        pass
+        loop.run_until_complete(registration.__aexit__(None, None, None))
 
     print('Closing')
     loop.run_until_complete(app.close())
