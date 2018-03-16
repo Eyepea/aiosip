@@ -1,9 +1,9 @@
 import argparse
 import asyncio
 import logging
+import itertools
 
 import aiosip
-from aiosip.contrib import session
 
 sip_config = {
     'srv_host': 'xxxxxx',
@@ -17,18 +17,29 @@ sip_config = {
 
 
 async def notify(dialog):
-    for idx in range(1, 4):
+    for idx in itertools.count(1):
         await dialog.notify(payload=str(idx))
         await asyncio.sleep(1)
 
 
-async def on_subscribe(dialog, message):
-    try:
-        print('Subscription started!')
-        await notify(dialog)
-    except asyncio.CancelledError:
-        pass
+async def on_subscribe(request, message):
+    expires = int(message.headers['Expires'])
+    dialog = await request.prepare(status_code=200,
+                                   headers={'Expires': expires})
 
+    if not expires:
+        return
+
+    print('Subscription started!')
+    task = asyncio.ensure_future(notify(dialog))
+    async for message in dialog:
+        expires = int(message.headers['Expires'])
+
+        await dialog.reply(message, 200, headers={'Expires': expires})
+        if expires == 0:
+            break
+
+    task.cancel()
     print('Subscription ended!')
 
 
@@ -58,7 +69,7 @@ def main():
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
     app.dialplan.add_user('subscriber', {
-        'SUBSCRIBE': session(on_subscribe)
+        'SUBSCRIBE': on_subscribe
     })
 
     if args.protocol == 'udp':
