@@ -1,7 +1,5 @@
 import asyncio
-from contextlib import suppress
 import logging
-import traceback
 
 from collections import defaultdict
 from multidict import CIMultiDict
@@ -25,7 +23,6 @@ class Dialog:
                  contact_details,
                  *,
                  password=None,
-                 router=None,
                  cseq=0):
 
         self.app = app
@@ -36,11 +33,8 @@ class Dialog:
         self.peer = peer
         self.password = password
         self.cseq = cseq
-        self.router = router
         self.transactions = defaultdict(dict)
         self.callbacks = defaultdict(list)
-        self.debug = False
-        self._tasks = list()
         self._nonce = None
         self._closing = None
         self._incoming = asyncio.Queue()
@@ -73,34 +67,8 @@ class Dialog:
         if 'tag' in msg.from_details['params']:
             self.to_details['params']['tag'] = msg.from_details['params']['tag']
 
-        if self.router:
-            route = self.router.get(msg.method)
-            if route:
-                try:
-                    t = asyncio.ensure_future(self._call_route(route, msg))
-                    self._tasks.append(t)
-                    await t
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:
-                    LOG.exception(e)
-                    payload = None
-                    if self.debug:
-                        with suppress(Exception):
-                            payload = traceback.format_exc()
-                    await self.reply(msg, status_code=500, payload=payload)
-            else:
-                await self.reply(msg, status_code=501)
-        else:
-            await self._queue_request(msg)
-
+        await self._queue_request(msg)
         self._maybe_close(msg)
-
-    async def _call_route(self, route, msg):
-        for middleware_factory in reversed(self.app._middleware):
-            route = await middleware_factory(route)
-
-        await route(self, msg)
 
     async def unauthorized(self, msg):
         self._nonce = utils.gen_str(10)
@@ -267,15 +235,11 @@ class Dialog:
         for transactions in self.transactions.values():
             for transaction in transactions.values():
                 transaction.close()
-        for task in self._tasks:
-            task.cancel()
 
     def _connection_lost(self):
         for transactions in self.transactions.values():
             for transaction in transactions.values():
                 transaction._error(ConnectionError)
-        for task in self._tasks:
-            task.cancel()
 
     async def _register(self, headers=None, expires=1800, *args, **kwargs):
         headers = CIMultiDict(headers or {})

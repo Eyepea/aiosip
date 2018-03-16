@@ -234,6 +234,7 @@ class ProxyTransaction(QueueTransaction):
                     self._closing.cancel()
                 yield response
                 self._closing = self.dialog.app.loop.call_later(self._timeout, self.dialog.end_transaction, self)
+                self._running = False
 
     def _incoming(self, msg):
         self._result(msg)

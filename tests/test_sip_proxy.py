@@ -6,25 +6,28 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
     callback_complete = loop.create_future()
     callback_complete_proxy = loop.create_future()
 
-    async def subscribe(dialog, request):
+    async def subscribe(request, message):
+        await request.prepare(status_code=200)
+        callback_complete.set_result(message)
 
-        await dialog.reply(request, status_code=200)
-        callback_complete.set_result(request)
+    async def proxy_subscribe(request, message):
+        dialog = request._create_dialog()
+        peer = await aiosip.utils.get_proxy_peer(dialog, message)
 
-    async def proxy_subscribe(dialog, request):
-        await dialog.router.proxy(dialog, request, timeout=0.1)
-        callback_complete_proxy.set_result(request)
+        async for proxy_response in peer.proxy_request(dialog, message, 0.1):
+            if proxy_response:
+                dialog.peer.proxy_response(proxy_response)
 
-    app = aiosip.Application(loop=loop)
+        callback_complete_proxy.set_result(message)
 
-    server_app = aiosip.Application(loop=loop)
+    app = aiosip.Application(loop=loop, debug=True)
+
+    server_app = aiosip.Application(loop=loop, debug=True)
     server_app.dialplan.add_user('pytest', {'SUBSCRIBE': subscribe})
     await test_server(server_app)
 
-    proxy_router = aiosip.ProxyRouter()
-    proxy_router['subscribe'] = proxy_subscribe
     proxy_app = aiosip.Application(loop=loop)
-    proxy_app.dialplan.add_user('pytest', proxy_router)
+    proxy_app.dialplan.add_user('pytest', {'SUBSCRIBE': proxy_subscribe})
     proxy = await test_proxy(proxy_app)
 
     peer = await app.connect(
@@ -54,30 +57,36 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_detail
     callback_complete = loop.create_future()
     callback_complete_proxy = loop.create_future()
 
-    async def subscribe(dialog, request):
-        assert len(dialog.peer.subscriber) == 1
-        await dialog.reply(request, status_code=200)
+    async def subscribe(request, message):
+        dialog = await request.prepare(status_code=200)
         await asyncio.sleep(0.2)
         await dialog.notify(payload='1')
 
-    async def notify(dialog, request):
-        await dialog.reply(request, 200)
-        callback_complete.set_result(request)
+    async def proxy_subscribe(request, message):
+        dialog = request._create_dialog()
+        peer = await aiosip.utils.get_proxy_peer(dialog, message)
 
-    async def proxy_notify(dialog, request):
-        await dialog.router.proxy(dialog, request, timeout=0.1)
-        callback_complete_proxy.set_result(request)
+        async for proxy_response in peer.proxy_request(dialog, message, 0.1):
+            if proxy_response:
+                dialog.peer.proxy_response(proxy_response)
 
-    app = aiosip.Application(loop=loop)
+        # TODO: refactor
+        subscription = peer._dialogs[message.headers['Call-ID']]
 
-    server_app = aiosip.Application(loop=loop)
+        async for msg in subscription:
+            async for proxy_response in dialog.peer.proxy_request(subscription, msg):
+                if proxy_response:
+                    peer.proxy_response(proxy_response)
+            callback_complete_proxy.set_result(msg)
+
+    app = aiosip.Application(loop=loop, debug=True)
+
+    server_app = aiosip.Application(loop=loop, debug=True)
     server_app.dialplan.add_user('pytest', {'SUBSCRIBE': subscribe})
     await test_server(server_app)
 
-    proxy_router = aiosip.ProxyRouter()
-    proxy_router['notify'] = proxy_notify
-    proxy_app = aiosip.Application(loop=loop)
-    proxy_app.dialplan.add_user('pytest', proxy_router)
+    proxy_app = aiosip.Application(loop=loop, debug=True)
+    proxy_app.dialplan.add_user('pytest', {'SUBSCRIBE': proxy_subscribe})
     proxy = await test_proxy(proxy_app)
 
     peer = await app.connect(
@@ -85,15 +94,16 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_detail
         remote_addr=(proxy.sip_config['server_host'], proxy.sip_config['server_port'])
     )
 
-    client_router = aiosip.Router()
-    client_router['notify'] = notify
-
-    await peer.subscribe(
+    subscription = await peer.subscribe(
         expires=1800,
         from_details=aiosip.Contact.from_header(from_details),
-        to_details=aiosip.Contact.from_header(to_details),
-        router=client_router
+        to_details=aiosip.Contact.from_header(to_details)
     )
+
+    async for msg in subscription:
+        await subscription.reply(msg, 200)
+        callback_complete.set_result(msg)
+        break  # We only expect a single message
 
     received_notify_server = await asyncio.wait_for(callback_complete, timeout=2)
     received_notify_proxy = await asyncio.wait_for(callback_complete_proxy, timeout=2)

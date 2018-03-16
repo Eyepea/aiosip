@@ -38,8 +38,7 @@ class Peer:
     def send_message(self, msg):
         self._protocol.send_message(msg, addr=self.peer_addr)
 
-    def _create_dialog(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
-                       router=None):
+    def _create_dialog(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0):
 
         if not call_id:
             call_id = str(uuid.uuid4())
@@ -73,20 +72,18 @@ class Peer:
             peer=self,
             password=password,
             cseq=cseq,
-            router=router
         )
         LOG.debug('Creating: %s', dialog)
         self._dialogs[call_id] = dialog
         return dialog
 
     async def subscribe(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
-                        router=None, expires=3600):
+                        expires=3600):
         dialog = self._create_dialog(from_details=from_details,
                                      to_details=to_details,
                                      contact_details=contact_details,
                                      password=password,
-                                     call_id=call_id, cseq=cseq,
-                                     router=router)
+                                     call_id=call_id, cseq=cseq)
         try:
             response = await dialog._subscribe(expires=expires)
             dialog.status_code = response.status_code
@@ -97,13 +94,12 @@ class Peer:
             raise
 
     async def register(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
-                       router=None, expires=3600):
+                       expires=3600):
         dialog = self._create_dialog(from_details=from_details,
                                      to_details=to_details,
                                      contact_details=contact_details,
                                      password=password,
-                                     call_id=call_id, cseq=cseq,
-                                     router=router)
+                                     call_id=call_id, cseq=cseq)
         try:
             response = await dialog._register(expires=expires)
             dialog.status_code = response.status_code
@@ -120,17 +116,10 @@ class Peer:
 
         proxy_dialog = self._dialogs.get(dialog.call_id)
         if not proxy_dialog:
-            router = await self._app.dialplan.resolve(
-                    username=dialog.to_details['uri']['user'],
-                    protocol=dialog.peer.protocol,
-                    local_addr=dialog.peer.local_addr,
-                    remote_addr=dialog.peer.peer_addr
-            )
             proxy_dialog = self._create_dialog(
                 from_details=dialog.from_details,
                 to_details=dialog.to_details,
                 call_id=dialog.call_id,
-                router=router
             )
         elif msg.cseq in proxy_dialog.transactions[msg.method]:
             proxy_dialog.transactions[msg.method][msg.cseq].retransmit()
