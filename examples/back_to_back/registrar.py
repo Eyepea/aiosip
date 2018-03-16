@@ -17,49 +17,78 @@ sip_config = {
 }
 
 
-async def on_register(dialog, message):
-    await dialog.reply(message, status_code=200)
+async def on_register(request, message):
+    expires = int(message.headers['Expires'])
+    # TODO: challenge registrations
+    dialog = await request.prepare(status_code=200)
+
+    if not expires:
+        return
 
     # TODO: multiple contact fields
     contact_uri = message.contact_details['uri']
     user = contact_uri['user']
     addr = contact_uri['host'], contact_uri['port']
-
-    # TODO: unregistration
     locations[user].add(addr)
-    print('Registration successful for {}'.format(user))
+    print('Registration established for {} at {}'.format(user, addr))
+
+    async for message in dialog:
+        expires = int(message.headers['Expires'])
+
+        # TODO: challenge registrations
+        await dialog.reply(message, 200)
+        if not expires:
+            break
+
+    locations[user].remove(addr)
+    print('Unregistering {} at {}'.format(user, addr))
 
 
-async def on_subscribe(dialog, message):
+async def on_subscribe(request, message):
+    expires = int(message.headers['Expires'])
     to_uri = message.to_details['uri']
     user = to_uri['user']
 
     if user not in locations:
         # TODO: this needs to destory the dialog
-        await dialog.reply(message, status_code=404)
+        await request.prepare(status_code=404)
         return
 
-    await dialog.reply(message, status_code=200)
+    dialog = await request.prepare(status_code=200,
+                                   headers={'Expires': expires})
 
-    for addr in locations[user]:
-        peer = await dialog.app.connect(addr)
-
+    async def reader(peer):
+        print('Forwarding subscription to {}'.format(peer))
         subscription = await peer.subscribe(
             from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
                 user, sip_config['local_host'], sip_config['local_port'])),
             to_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
                 user, *addr)),
-            password=sip_config['pwd'])
+            password=sip_config['pwd'],
+            expires=expires)
 
         assert subscription.status_code == 200
         async for request in subscription:
             await subscription.reply(request, status_code=200)
-
-            print('FORWARDING:', request.payload)
             # TODO: need to sensibly forward headers
             await dialog.request(request.method, payload=request.payload)
 
+    task = None
+    for addr in locations[user]:
+        peer = await dialog.app.connect(addr)
+        task = asyncio.ensure_future(reader(peer))
         break  # Only looking for first entry for now
+
+    print("Subscription forwarding started!")
+    async for message in dialog:
+        expires = int(message.headers['Expires'])
+
+        await dialog.reply(message, 200, headers={'Expires': expires})
+        if not expires:
+            break
+
+    task.cancel()
+    print("Subscription forwarding ended!")
 
 
 def start(app, protocol):
