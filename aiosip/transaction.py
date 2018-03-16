@@ -112,57 +112,6 @@ class BaseTransaction:
         )
 
 
-class QueueTransaction(BaseTransaction):
-
-    def __init__(self, timeout=5, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._incomings = asyncio.Queue()
-        self._closing = None
-        self._timeout = timeout
-
-    async def start(self):
-        self.retransmission = asyncio.ensure_future(self._timer())
-        while self._running:
-            response = await self._incomings.get()
-            if isinstance(response, BaseException):
-                self.dialog.end_transaction(self)
-                raise response
-            elif response is None:
-                self.dialog.end_transaction(self)
-                return
-            elif 100 <= response.status_code < 200:
-                yield response
-            else:
-                if self._closing:
-                    self._closing.cancel()
-                yield response
-                self._closing = self.dialog.app.loop.call_later(self._timeout, self.dialog.end_transaction, self)
-
-    def _incoming(self, msg):
-        super()._incoming(msg)
-        if msg.method == 'ACK':
-            self._result(msg)
-        elif msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
-            self._handle_authenticate(msg)
-            return
-        elif msg.status_code == 407:  # Proxy authentication
-            self._handle_proxy_authenticate(msg)
-            return
-        else:
-            self._result(msg)
-
-    def _error(self, error):
-        self._incomings.put_nowait(error)
-
-    def _result(self, msg):
-        self._incomings.put_nowait(msg)
-
-    def close(self):
-        if self._running:
-            super().close()
-            self._incomings.put_nowait(None)
-
-
 class FutureTransaction(BaseTransaction):
 
     def __init__(self, *args, **kwargs):
@@ -213,9 +162,12 @@ class UnreliableTransaction(FutureTransaction):
         super().close()
 
 
-class ProxyTransaction(QueueTransaction):
-    def __init__(self, *args, **kwargs):
+class ProxyTransaction(BaseTransaction):
+    def __init__(self, timeout=5, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._incomings = asyncio.Queue()
+        self._closing = None
+        self._timeout = timeout
 
     async def start(self):
         self.dialog.peer.send_message(self.original_msg)
@@ -239,5 +191,16 @@ class ProxyTransaction(QueueTransaction):
     def _incoming(self, msg):
         self._result(msg)
 
+    def _error(self, error):
+        self._incomings.put_nowait(error)
+
+    def _result(self, msg):
+        self._incomings.put_nowait(msg)
+
     def retransmit(self):
         self.dialog.peer.send_message(self.original_msg)
+
+    def close(self):
+        if self._running:
+            super().close()
+            self._incomings.put_nowait(None)
