@@ -43,8 +43,7 @@ async def run_subscription(peer, user, duration):
     with contextlib.suppress(asyncio.TimeoutError):
         await asyncio.wait_for(reader(), timeout=duration)
 
-    # TODO: needs a better API
-    await subscription._subscribe(expires=0)
+    await subscription.close()
 
 
 async def start(app, protocol, target, duration):
