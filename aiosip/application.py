@@ -95,10 +95,13 @@ class Application(MutableMapping):
         for middleware_factory in reversed(self._middleware):
             route = await middleware_factory(route)
 
+        app = self
         call_id = msg.headers['Call-ID']
 
+        # TODO: refactor
         class Request:
             def __init__(self):
+                self.app = app
                 self.dialog = None
 
             def _create_dialog(self):
