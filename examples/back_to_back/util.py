@@ -8,4 +8,4 @@ class Registration:
         self._dialog = await self._peer.register(**self._kwargs)
 
     async def __aexit__(self, *exc_info):
-        await self._dialog._register(expires=0)
+        await self._dialog.close()

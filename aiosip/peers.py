@@ -38,7 +38,8 @@ class Peer:
     def send_message(self, msg):
         self._protocol.send_message(msg, addr=self.peer_addr)
 
-    def _create_dialog(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0):
+    def _create_dialog(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
+                       cseq=0):
 
         if not call_id:
             call_id = str(uuid.uuid4())
@@ -64,6 +65,7 @@ class Peer:
             )
 
         dialog = self._app.dialog_factory(
+            method=method,
             app=self._app,
             from_details=from_details,
             to_details=to_details,
@@ -79,13 +81,14 @@ class Peer:
 
     async def subscribe(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
                         expires=3600):
-        dialog = self._create_dialog(from_details=from_details,
+        dialog = self._create_dialog(method="SUBSCRIBE",
+                                     from_details=from_details,
                                      to_details=to_details,
                                      contact_details=contact_details,
                                      password=password,
                                      call_id=call_id, cseq=cseq)
         try:
-            response = await dialog._subscribe(expires=expires)
+            response = await dialog.start(expires=expires)
             dialog.status_code = response.status_code
             dialog.status_message = response.status_message
             return dialog
@@ -95,19 +98,60 @@ class Peer:
 
     async def register(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
                        expires=3600):
-        dialog = self._create_dialog(from_details=from_details,
+        dialog = self._create_dialog(method="REGISTER",
+                                     from_details=from_details,
                                      to_details=to_details,
                                      contact_details=contact_details,
                                      password=password,
                                      call_id=call_id, cseq=cseq)
         try:
-            response = await dialog._register(expires=expires)
+            response = await dialog.start(expires=expires)
             dialog.status_code = response.status_code
             dialog.status_message = response.status_message
             return dialog
         except asyncio.CancelledError:
             dialog.cancel()
             raise
+
+    async def invite(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0):
+
+        if not call_id:
+            call_id = str(uuid.uuid4())
+
+        if not contact_details:
+            host, port = self.local_addr
+
+            # No way to get the public local addr in UDP. Allow an override or select the From host
+            # Maybe with https://bugs.python.org/issue31203
+            if self._app.defaults['override_contact_host']:
+                host = self._app.defaults['override_contact_host']
+            elif host == '0.0.0.0' or host.startswith('127.'):
+                host = from_details['uri']['host']
+
+            contact_details = Contact(
+                {
+                    'uri': 'sip:{username}@{host_and_port};transport={protocol}'.format(
+                        username=from_details['uri']['user'],
+                        host_and_port=utils.format_host_and_port(host, port),
+                        protocol=type(self._protocol).__name__.lower()
+                    )
+                }
+            )
+
+        from .dialog import InviteDialog
+        dialog = InviteDialog(
+            app=self._app,
+            from_details=from_details,
+            to_details=to_details,
+            call_id=call_id,
+            peer=self,
+            contact_details=contact_details,
+            password=None,
+            cseq=cseq
+        )
+        self._dialogs[call_id] = dialog
+        await dialog.start()
+        return dialog
 
     async def proxy_request(self, dialog, msg, timeout=5):
         if msg.method == 'ACK':
@@ -117,6 +161,7 @@ class Peer:
         proxy_dialog = self._dialogs.get(dialog.call_id)
         if not proxy_dialog:
             proxy_dialog = self._create_dialog(
+                method=msg.method,
                 from_details=dialog.from_details,
                 to_details=dialog.to_details,
                 call_id=dialog.call_id,
