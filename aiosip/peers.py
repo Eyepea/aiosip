@@ -39,7 +39,7 @@ class Peer:
         self._protocol.send_message(msg, addr=self.peer_addr)
 
     def _create_dialog(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
-                       cseq=0):
+                       cseq=0, inbound=False):
 
         if not call_id:
             call_id = str(uuid.uuid4())
@@ -74,6 +74,7 @@ class Peer:
             peer=self,
             password=password,
             cseq=cseq,
+            inbound=inbound,
         )
         LOG.debug('Creating: %s', dialog)
         self._dialogs[call_id] = dialog

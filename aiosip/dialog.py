@@ -33,7 +33,8 @@ class DialogBase:
                  contact_details,
                  *,
                  password=None,
-                 cseq=0):
+                 cseq=0,
+                 inbound=False):
 
         self.app = app
         self.from_details = from_details
@@ -43,12 +44,14 @@ class DialogBase:
         self.peer = peer
         self.password = password
         self.cseq = cseq
+        self.inbound = inbound
         self.transactions = defaultdict(dict)
 
         # TODO: Needs to be last because we need the above attributes set
         self.original_msg = self._prepare_request(method)
 
     def _receive_response(self, msg):
+
         try:
             transaction = self.transactions[msg.method][msg.cseq]
             transaction._incoming(msg)
@@ -92,6 +95,13 @@ class DialogBase:
             headers['Expires'] = expires
         return await self.request(self.original_msg.method, headers=headers)
 
+    def ack(self, msg, headers=None, *args, **kwargs):
+        headers = CIMultiDict(headers or {})
+
+        headers['Via'] = msg.headers['Via']
+        ack = self._prepare_request('ACK', cseq=msg.cseq, to_details=msg.to_details, headers=headers, *args, **kwargs)
+        self.peer.send_message(ack)
+
     async def unauthorized(self, msg):
         self._nonce = utils.gen_str(10)
         headers = CIMultiDict()
@@ -107,10 +117,6 @@ class DialogBase:
         else:
             return False
 
-    def close(self, *, fast=False):
-        self.peer._close_dialog(self.call_id)
-        self._close()
-
     def close_later(self, delay=None):
         if delay is None:
             delay = self.app.defaults['dialog_closing_delay']
@@ -124,7 +130,7 @@ class DialogBase:
         self._closing = asyncio.ensure_future(closure())
 
     def _maybe_close(self, msg):
-        if msg.method in ('REGISTER', 'SUBSCRIBE'):
+        if msg.method in ('REGISTER', 'SUBSCRIBE') and not self.inbound:
             expire = int(msg.headers.get('Expires', 0))
             delay = int(expire * 1.1) if expire else None
             self.close_later(delay)
@@ -262,10 +268,13 @@ class Dialog(DialogBase):
         return await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
 
     async def close(self, fast=False, headers=None, *args, **kwargs):
-        headers = CIMultiDict(headers or {})
-        if 'Expires' not in headers:
-            headers['Expires'] = 0
-        return await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
+        if not self.inbound:
+            headers = CIMultiDict(headers or {})
+            if 'Expires' not in headers:
+                headers['Expires'] = 0
+            return await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
+        self.peer._close_dialog(self.call_id)
+        self._close()
 
     async def notify(self, *args, headers=None, **kwargs):
         headers = CIMultiDict(headers or {})
@@ -293,6 +302,7 @@ class InviteDialog(DialogBase):
     def __init__(self, *args, **kwargs):
         super().__init__(method="INVITE", *args, **kwargs)
 
+        self._closed = False
         self._queue = asyncio.Queue()
         self._state = CallState.Calling
         self._waiter = asyncio.Future()
@@ -367,13 +377,6 @@ class InviteDialog(DialogBase):
         if msg.status_code != 200:
             raise RuntimeError("INVITE failed with {}".format(msg.status_code))
 
-    def ack(self, msg, headers=None, *args, **kwargs):
-        headers = CIMultiDict(headers or {})
-
-        headers['Via'] = msg.headers['Via']
-        ack = self._prepare_request('ACK', cseq=msg.cseq, to_details=msg.to_details, headers=headers, *args, **kwargs)
-        self.peer.send_message(ack)
-
     def end_transaction(self, transaction):
         to_delete = list()
         for method, values in self.transactions.items():
@@ -386,10 +389,16 @@ class InviteDialog(DialogBase):
             del self.transactions[item[0]][item[1]]
 
     async def close(self):
-        msg = self._prepare_request('BYE')
-        transaction = UnreliableTransaction(self, original_msg=msg, loop=self.app.loop)
-        self.transactions[msg.method][msg.cseq] = transaction
-        return await transaction.start()
+        if not self._closed:
+            self._closed = True
+            if self._state == CallState.Terminated:
+                msg = self._prepare_request('BYE')
+                transaction = UnreliableTransaction(self, original_msg=msg, loop=self.app.loop)
+                self.transactions[msg.method][msg.cseq] = transaction
+                await transaction.start()
+
+        self.peer._close_dialog(self.call_id)
+        self._close()
 
     def _close(self):
         pass
