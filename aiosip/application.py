@@ -119,7 +119,7 @@ class Application(MutableMapping):
 
                 await dialog.reply(msg, status_code, *args, **kwargs)
                 if status_code >= 300:
-                    dialog.close()
+                    await dialog.close()
                     return None
 
                 return dialog

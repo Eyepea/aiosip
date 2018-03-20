@@ -116,7 +116,12 @@ class DialogBase:
             delay = self.app.defaults['dialog_closing_delay']
         if self._closing:
             self._closing.cancel()
-        self._closing = self.app.loop.call_later(delay, self.close)
+
+        async def closure():
+            await asyncio.sleep(delay)
+            await self.close()
+
+        self._closing = asyncio.ensure_future(closure())
 
     def _maybe_close(self, msg):
         if msg.method in ('REGISTER', 'SUBSCRIBE'):
