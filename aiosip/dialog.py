@@ -52,6 +52,9 @@ class DialogBase:
         # TODO: Needs to be last because we need the above attributes set
         self.original_msg = self._prepare_request(method, headers=headers, payload=payload)
 
+        self._closed = False
+        self._closing = None
+
     def _receive_response(self, msg):
 
         try:
@@ -239,7 +242,6 @@ class Dialog(DialogBase):
         super().__init__(*args, **kwargs)
 
         self._nonce = None
-        self._closing = None
         self._incoming = asyncio.Queue()
 
     async def receive_message(self, msg):
@@ -270,13 +272,17 @@ class Dialog(DialogBase):
         return await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
 
     async def close(self, fast=False, headers=None, *args, **kwargs):
-        if not self.inbound:
-            headers = CIMultiDict(headers or {})
-            if 'Expires' not in headers:
-                headers['Expires'] = 0
-            return await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
-        self.peer._close_dialog(self.call_id)
-        self._close()
+        if not self._closed:
+            self._closed = True
+            result = None
+            if not self.inbound and self.original_msg.method in ('REGISTER', 'SUBSCRIBE'):
+                headers = CIMultiDict(headers or {})
+                if 'Expires' not in headers:
+                    headers['Expires'] = 0
+                result = await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
+            self.peer._close_dialog(self.call_id)
+            self._close()
+            return result
 
     async def notify(self, *args, headers=None, **kwargs):
         headers = CIMultiDict(headers or {})
@@ -304,7 +310,6 @@ class InviteDialog(DialogBase):
     def __init__(self, *args, **kwargs):
         super().__init__(method="INVITE", *args, **kwargs)
 
-        self._closed = False
         self._queue = asyncio.Queue()
         self._state = CallState.Calling
         self._waiter = asyncio.Future()
@@ -362,6 +367,17 @@ class InviteDialog(DialogBase):
             else:
                 return await self._receive_request(msg)
 
+    async def _receive_request(self, msg):
+        self.peer._bookkeeping(msg, self.call_id)
+
+        if 'tag' in msg.from_details['params']:
+            self.to_details['params']['tag'] = msg.from_details['params']['tag']
+
+        if msg.method == 'BYE':
+            self._closed = True
+
+        self._maybe_close(msg)
+
     @property
     def state(self):
         return self._state
@@ -393,8 +409,14 @@ class InviteDialog(DialogBase):
     async def close(self):
         if not self._closed:
             self._closed = True
+
+            msg = None
             if self._state == CallState.Terminated:
                 msg = self._prepare_request('BYE')
+            elif self._state != CallState.Completed:
+                msg = self._prepare_request('CANCEL')
+
+            if msg:
                 transaction = UnreliableTransaction(self, original_msg=msg, loop=self.app.loop)
                 self.transactions[msg.method][msg.cseq] = transaction
                 await transaction.start()
