@@ -82,6 +82,25 @@ class Peer:
         self._dialogs[call_id] = dialog
         return dialog
 
+    async def request(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
+                      headers=None, payload=None, cseq=0):
+        dialog = self._create_dialog(method=method,
+                                     from_details=from_details,
+                                     to_details=to_details,
+                                     contact_details=contact_details,
+                                     headers=headers,
+                                     payload=payload,
+                                     password=password,
+                                     call_id=call_id, cseq=cseq)
+        try:
+            response = await dialog.start()
+            dialog.status_code = response.status_code
+            dialog.status_message = response.status_message
+            return dialog
+        except asyncio.CancelledError:
+            dialog.cancel()
+            raise
+
     async def subscribe(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
                         expires=3600):
         dialog = self._create_dialog(method="SUBSCRIBE",
