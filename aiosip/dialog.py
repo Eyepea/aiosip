@@ -386,6 +386,9 @@ class InviteDialog(DialogBase):
         # TODO: this is a hack
         self.peer.send_message(self.original_msg)
 
+    async def recv(self):
+        return await self._queue.get()
+
     async def wait_for_terminate(self):
         while not self._waiter.done():
             yield await self._queue.get()
