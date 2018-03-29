@@ -39,7 +39,7 @@ class Peer:
         self._protocol.send_message(msg, addr=self.peer_addr)
 
     def _create_dialog(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
-                       cseq=0, inbound=False):
+                       headers=None, payload=None, cseq=0, inbound=False):
 
         if not call_id:
             call_id = str(uuid.uuid4())
@@ -73,6 +73,8 @@ class Peer:
             call_id=call_id,
             peer=self,
             password=password,
+            headers=headers,
+            payload=payload,
             cseq=cseq,
             inbound=inbound,
         )
@@ -114,7 +116,8 @@ class Peer:
             dialog.cancel()
             raise
 
-    async def invite(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0):
+    async def invite(self, from_details, to_details, contact_details=None, password=None, call_id=None, headers=None,
+                     payload=None, cseq=0):
 
         if not call_id:
             call_id = str(uuid.uuid4())
@@ -147,6 +150,8 @@ class Peer:
             call_id=call_id,
             peer=self,
             contact_details=contact_details,
+            headers=headers,
+            payload=payload,
             password=None,
             cseq=cseq
         )

@@ -32,6 +32,8 @@ class DialogBase:
                  peer,
                  contact_details,
                  *,
+                 headers=None,
+                 payload=None,
                  password=None,
                  cseq=0,
                  inbound=False):
@@ -48,7 +50,7 @@ class DialogBase:
         self.transactions = defaultdict(dict)
 
         # TODO: Needs to be last because we need the above attributes set
-        self.original_msg = self._prepare_request(method)
+        self.original_msg = self._prepare_request(method, headers=headers, payload=payload)
 
     def _receive_response(self, msg):
 
@@ -90,10 +92,10 @@ class DialogBase:
 
     async def start(self, *, expires=None):
         # TODO: this is a hack
-        headers = {}
-        if expires:
+        headers = self.original_msg.headers
+        if expires is not None:
             headers['Expires'] = expires
-        return await self.request(self.original_msg.method, headers=headers)
+        return await self.request(self.original_msg.method, headers=headers, payload=self.original_msg.payload)
 
     def ack(self, msg, headers=None, *args, **kwargs):
         headers = CIMultiDict(headers or {})
