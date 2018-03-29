@@ -138,6 +138,10 @@ class Application(MutableMapping):
             await dialog.receive_message(msg)
             return
 
+        # If we got an ACK, but nowhere to deliver it, drop it
+        if msg.method == 'ACK':
+            return
+
         router = await self.dialplan.resolve(
             username=msg.from_details['uri']['user'],
             protocol=peer.protocol,
