@@ -110,7 +110,8 @@ class Application(MutableMapping):
                         method=msg.method,
                         from_details=Contact.from_header(msg.headers['To']),
                         to_details=Contact.from_header(msg.headers['From']),
-                        call_id=call_id
+                        call_id=call_id,
+                        inbound=True
                     )
                 return self.dialog
 
@@ -135,6 +136,10 @@ class Application(MutableMapping):
         dialog = peer._dialogs.get(key)
         if dialog:
             await dialog.receive_message(msg)
+            return
+
+        # If we got an ACK, but nowhere to deliver it, drop it
+        if msg.method == 'ACK':
             return
 
         router = await self.dialplan.resolve(
