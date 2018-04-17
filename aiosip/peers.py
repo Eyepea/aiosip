@@ -1,9 +1,7 @@
 import asyncio
 import logging
-import time
 import uuid
 
-from collections import defaultdict
 import websockets
 
 from . import utils
@@ -16,18 +14,11 @@ LOG = logging.getLogger(__name__)
 class Peer:
     def __init__(self, peer_addr, app, *, loop=None):
         self.peer_addr = peer_addr
-        self.registered = {}
-        self.subscriber = defaultdict(dict)
         self._app = app
         self._protocol = None
         self._loop = loop
-        self._dialogs = {}
         self._connected_future = asyncio.Future(loop=loop)
         self._disconnected_future = asyncio.Future(loop=loop)
-
-    @property
-    def dialogs(self):
-        return self._dialogs
 
     async def close(self):
         if self._protocol is not None:
@@ -79,7 +70,7 @@ class Peer:
             inbound=inbound,
         )
         LOG.debug('Creating: %s', dialog)
-        self._dialogs[call_id] = dialog
+        self._app._dialogs[dialog.dialog_id] = dialog
         return dialog
 
     async def request(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
@@ -91,7 +82,8 @@ class Peer:
                                      headers=headers,
                                      payload=payload,
                                      password=password,
-                                     call_id=call_id, cseq=cseq)
+                                     call_id=call_id,
+                                     cseq=cseq)
         try:
             response = await dialog.start()
             dialog.status_code = response.status_code
@@ -108,7 +100,8 @@ class Peer:
                                      to_details=to_details,
                                      contact_details=contact_details,
                                      password=password,
-                                     call_id=call_id, cseq=cseq)
+                                     call_id=call_id,
+                                     cseq=cseq)
         try:
             response = await dialog.start(expires=expires)
             dialog.status_code = response.status_code
@@ -125,7 +118,8 @@ class Peer:
                                      to_details=to_details,
                                      contact_details=contact_details,
                                      password=password,
-                                     call_id=call_id, cseq=cseq)
+                                     call_id=call_id,
+                                     cseq=cseq)
         try:
             response = await dialog.start(expires=expires)
             dialog.status_code = response.status_code
@@ -174,7 +168,7 @@ class Peer:
             password=None,
             cseq=cseq
         )
-        self._dialogs[call_id] = dialog
+        self._app._dialogs[dialog.dialog_id] = dialog
         await dialog.start()
         return dialog
 
@@ -183,13 +177,13 @@ class Peer:
             self.send_message(msg)
             return
 
-        proxy_dialog = self._dialogs.get(dialog.call_id)
+        proxy_dialog = self._app._dialogs.get(dialog.call_id)
         if not proxy_dialog:
             proxy_dialog = self._create_dialog(
                 method=msg.method,
                 from_details=dialog.from_details,
                 to_details=dialog.to_details,
-                call_id=dialog.call_id,
+                call_id=dialog.call_id
             )
         elif msg.cseq in proxy_dialog.transactions[msg.method]:
             proxy_dialog.transactions[msg.method][msg.cseq].retransmit()
@@ -214,58 +208,9 @@ class Peer:
 
         proxy_dialog._maybe_close(msg)
 
-    def _bookkeeping(self, msg, call_id):
-        if msg.method not in ('REGISTER', 'SUBSCRIBE'):
-            return
-
-        expires = int(msg.headers.get('Expires', 0))
-
-        if msg.method == 'REGISTER' and expires:
-            self.registered[msg.contact_details['uri']['user']] = {
-                'expires': time.time() + expires,
-                'dialog': call_id
-            }
-        elif msg.method == 'SUBSCRIBE' and expires:
-            self.subscriber[msg.contact_details['uri']['user']][msg.to_details['uri']['user']] = {
-                'expires': time.time() + expires,
-                'dialog': call_id
-            }
-        if msg.method == 'REGISTER' and not expires:
-            try:
-                del self.registered[msg.contact_details['uri']['user']]
-            except KeyError:
-                pass
-        elif msg.method == 'SUBSCRIBE' and not expires:
-            try:
-                del self.subscriber[msg.contact_details['uri']['user']][msg.to_details['uri']['user']]
-            except KeyError:
-                pass
-
     def proxy_response(self, msg):
         msg.headers['Via'].pop(0)
         return self.send_message(msg)
-
-    def _close_dialog(self, call_id):
-        try:
-            del self._dialogs[call_id]
-        except KeyError:
-            pass
-
-        to_del = list()
-        for user, value in self.registered.items():
-            if value['dialog'] == call_id:
-                to_del.append(user)
-        for user in to_del:
-            del self.registered[user]
-
-        to_del = list()
-        for user, subscriptions in self.subscriber.items():
-            for subscribe, values in subscriptions.items():
-                if values['dialog'] == call_id:
-                    to_del.append((user, subscribe))
-
-        for v in to_del:
-            del self.subscriber[v[0]][v[1]]
 
     @property
     def protocol(self):
@@ -286,14 +231,6 @@ class Peer:
 
     def _disconnected(self):
         LOG.debug('Lost connection for %s', self)
-
-        for dialog in self._dialogs.values():
-            dialog._close()
-        self._dialogs = {}
-
-        self.registered = {}
-        self.subscriber = defaultdict(dict)
-
         self._protocol = None
         self._disconnected_future.set_result(None)
 
@@ -303,13 +240,6 @@ class Peer:
             return self._protocol.transport.get_extra_info('sockname')
         else:
             return None, None
-
-    @property
-    def contacts(self):
-        for contact in self.registered:
-            yield contact
-        for contact in self.subscriber:
-            yield contact
 
     def __repr__(self):
         return '<{0} {1[0]}:{1[1]} {2}, local_addr={3[0]}:{3[1]}>'.format(

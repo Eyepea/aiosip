@@ -53,6 +53,7 @@ class Application(MutableMapping):
         self.dns = dns_resolver
         self._finish_callbacks = []
         self._state = {}
+        self._dialogs = {}
         self._connectors = {UDP: UDPConnector(self, loop=loop),
                             TCP: TCPConnector(self, loop=loop),
                             WS: WSConnector(self, loop=loop)}
@@ -129,11 +130,11 @@ class Application(MutableMapping):
         await route(request, msg)
 
     async def _dispatch(self, protocol, msg, addr):
-        connector = self._connectors[type(protocol)]
-        peer = await connector.get_peer(protocol, addr)
-        key = msg.headers['Call-ID']
+        call_id = msg.headers['Call-ID']
+        dialog = self._dialogs.get(frozenset((msg.to_details.details,
+                                              msg.from_details.details,
+                                              call_id)))
 
-        dialog = peer._dialogs.get(key)
         if dialog:
             await dialog.receive_message(msg)
             return
@@ -143,6 +144,10 @@ class Application(MutableMapping):
         # retransmission, drop it)
         if msg.method == 'ACK' or hasattr(msg, 'status_code'):
             return
+
+        connector = self._connectors[type(protocol)]
+        contact_addr = (msg.contact_details.host, msg.contact_details.port)
+        peer = await connector.get_peer(protocol, contact_addr)
 
         router = await self.dialplan.resolve(
             username=msg.from_details['uri']['user'],
@@ -156,7 +161,7 @@ class Application(MutableMapping):
                 method=msg.method,
                 from_details=Contact.from_header(msg.headers['To']),
                 to_details=Contact.from_header(msg.headers['From']),
-                call_id=key
+                call_id=call_id
             )
 
             await dialog.reply(*args, **kwargs)
