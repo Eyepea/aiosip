@@ -71,6 +71,37 @@ class Contact(MutableMapping):
             r += ';%s' % str(params)
         return r
 
+    @property
+    def scheme(self):
+        return self._contact['uri']['scheme']
+
+    @property
+    def transport(self):
+        transport = self._contact['params'].get('transport')
+        if not transport:
+            return 'tcp' if self.scheme == 'sips' else 'udp'
+        return transport
+
+    @property
+    def host(self):
+        return self._contact['uri']['host']
+
+    @property
+    def port(self):
+        port = self._contact['uri'].get('port')
+        if not port:
+            if self.scheme == 'sips':
+                return 5061
+            elif self.transport == 'udp':
+                return 5060
+            else:
+                return 5080
+        return port
+
+    @property
+    def details(self):
+        return self.scheme, self.transport, self.host, self.port
+
     # MutableMapping API
     def __eq__(self, other):
         return self is other
