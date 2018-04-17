@@ -138,8 +138,10 @@ class Application(MutableMapping):
             await dialog.receive_message(msg)
             return
 
-        # If we got an ACK, but nowhere to deliver it, drop it
-        if msg.method == 'ACK':
+        # If we got an ACK, but nowhere to deliver it, drop it. If we
+        # got a response without an associated message (likely a stale
+        # retransmission, drop it)
+        if msg.method == 'ACK' or hasattr(msg, 'status_code'):
             return
 
         router = await self.dialplan.resolve(
