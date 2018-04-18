@@ -17,7 +17,9 @@ from .dialog import Dialog
 from .dialplan import Dialplan
 from .protocol import UDP, TCP, WS
 from .peers import UDPConnector, TCPConnector, WSConnector
+from .message import Response
 from .contact import Contact
+from .via import Via
 
 
 LOG = logging.getLogger(__name__)
@@ -142,12 +144,23 @@ class Application(MutableMapping):
         # If we got an ACK, but nowhere to deliver it, drop it. If we
         # got a response without an associated message (likely a stale
         # retransmission, drop it)
-        if msg.method == 'ACK' or hasattr(msg, 'status_code'):
+        if isinstance(msg, Response) or msg.method == 'ACK':
             return
 
+        await self._run_dialplan(protocol, msg)
+
+    async def _run_dialplan(self, protocol, msg):
+        call_id = msg.headers['Call-ID']
+        via_header = msg.headers['Via']
+
+        # TODO: isn't multidict supposed to only return the first header?
+        if isinstance(via_header, list):
+            via_header = via_header[0]
+
         connector = self._connectors[type(protocol)]
-        contact_addr = (msg.contact_details.host, msg.contact_details.port)
-        peer = await connector.get_peer(protocol, contact_addr)
+        via = Via.from_header(via_header)
+        via_addr = via['host'], int(via['port'])
+        peer = await connector.get_peer(protocol, via_addr)
 
         router = await self.dialplan.resolve(
             username=msg.from_details['uri']['user'],
