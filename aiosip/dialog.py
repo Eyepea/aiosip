@@ -55,8 +55,13 @@ class DialogBase:
         self._closed = False
         self._closing = None
 
-    def _receive_response(self, msg):
+    @property
+    def dialog_id(self):
+        return frozenset((self.original_msg.to_details.details,
+                          self.original_msg.from_details.details,
+                          self.call_id))
 
+    def _receive_response(self, msg):
         try:
             transaction = self.transactions[msg.method][msg.cseq]
             transaction._incoming(msg)
@@ -257,8 +262,6 @@ class Dialog(DialogBase):
             return await self._receive_request(msg)
 
     async def _receive_request(self, msg):
-        self.peer._bookkeeping(msg, self.call_id)
-
         if 'tag' in msg.from_details['params']:
             self.to_details['params']['tag'] = msg.from_details['params']['tag']
 
@@ -280,7 +283,6 @@ class Dialog(DialogBase):
                 if 'Expires' not in headers:
                     headers['Expires'] = 0
                 result = await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
-            self.peer._close_dialog(self.call_id)
             self._close()
             return result
 
@@ -368,8 +370,6 @@ class InviteDialog(DialogBase):
                 return await self._receive_request(msg)
 
     async def _receive_request(self, msg):
-        self.peer._bookkeeping(msg, self.call_id)
-
         if 'tag' in msg.from_details['params']:
             self.to_details['params']['tag'] = msg.from_details['params']['tag']
 
@@ -424,7 +424,6 @@ class InviteDialog(DialogBase):
                 self.transactions[msg.method][msg.cseq] = transaction
                 await transaction.start()
 
-        self.peer._close_dialog(self.call_id)
         self._close()
 
     def _close(self):

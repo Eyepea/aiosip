@@ -71,7 +71,11 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_detail
                 dialog.peer.proxy_response(proxy_response)
 
         # TODO: refactor
-        subscription = peer._dialogs[message.headers['Call-ID']]
+        subscription = request.app._dialogs[frozenset((
+            message.to_details.details,
+            message.from_details.details,
+            message.headers['Call-ID']
+        ))]
 
         async for msg in subscription:
             async for proxy_response in dialog.peer.proxy_request(subscription, msg):

@@ -17,7 +17,9 @@ from .dialog import Dialog
 from .dialplan import Dialplan
 from .protocol import UDP, TCP, WS
 from .peers import UDPConnector, TCPConnector, WSConnector
+from .message import Response
 from .contact import Contact
+from .via import Via
 
 
 LOG = logging.getLogger(__name__)
@@ -53,6 +55,7 @@ class Application(MutableMapping):
         self.dns = dns_resolver
         self._finish_callbacks = []
         self._state = {}
+        self._dialogs = {}
         self._connectors = {UDP: UDPConnector(self, loop=loop),
                             TCP: TCPConnector(self, loop=loop),
                             WS: WSConnector(self, loop=loop)}
@@ -129,18 +132,35 @@ class Application(MutableMapping):
         await route(request, msg)
 
     async def _dispatch(self, protocol, msg, addr):
-        connector = self._connectors[type(protocol)]
-        peer = await connector.get_peer(protocol, addr)
-        key = msg.headers['Call-ID']
+        call_id = msg.headers['Call-ID']
+        dialog = self._dialogs.get(frozenset((msg.to_details.details,
+                                              msg.from_details.details,
+                                              call_id)))
 
-        dialog = peer._dialogs.get(key)
         if dialog:
             await dialog.receive_message(msg)
             return
 
-        # If we got an ACK, but nowhere to deliver it, drop it
-        if msg.method == 'ACK':
+        # If we got an ACK, but nowhere to deliver it, drop it. If we
+        # got a response without an associated message (likely a stale
+        # retransmission, drop it)
+        if isinstance(msg, Response) or msg.method == 'ACK':
             return
+
+        await self._run_dialplan(protocol, msg)
+
+    async def _run_dialplan(self, protocol, msg):
+        call_id = msg.headers['Call-ID']
+        via_header = msg.headers['Via']
+
+        # TODO: isn't multidict supposed to only return the first header?
+        if isinstance(via_header, list):
+            via_header = via_header[0]
+
+        connector = self._connectors[type(protocol)]
+        via = Via.from_header(via_header)
+        via_addr = via['host'], int(via['port'])
+        peer = await connector.get_peer(protocol, via_addr)
 
         router = await self.dialplan.resolve(
             username=msg.from_details['uri']['user'],
@@ -154,7 +174,7 @@ class Application(MutableMapping):
                 method=msg.method,
                 from_details=Contact.from_header(msg.headers['To']),
                 to_details=Contact.from_header(msg.headers['From']),
-                call_id=key
+                call_id=call_id
             )
 
             await dialog.reply(*args, **kwargs)
