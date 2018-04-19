@@ -74,7 +74,7 @@ class Peer:
         return dialog
 
     async def request(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
-                      headers=None, payload=None, cseq=0):
+                      headers=None, cseq=0, payload=None):
         dialog = self._create_dialog(method=method,
                                      from_details=from_details,
                                      to_details=to_details,
@@ -93,15 +93,16 @@ class Peer:
             dialog.cancel()
             raise
 
-    async def subscribe(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
-                        expires=3600):
+    async def subscribe(self, from_details, to_details, contact_details=None, password=None, call_id=None, headers=None,
+                        cseq=0, expires=3600):
         dialog = self._create_dialog(method="SUBSCRIBE",
                                      from_details=from_details,
                                      to_details=to_details,
                                      contact_details=contact_details,
                                      password=password,
                                      call_id=call_id,
-                                     cseq=cseq)
+                                     cseq=cseq,
+                                     headers=headers)
         try:
             response = await dialog.start(expires=expires)
             dialog.status_code = response.status_code
@@ -111,8 +112,8 @@ class Peer:
             dialog.cancel()
             raise
 
-    async def register(self, from_details, to_details, contact_details=None, password=None, call_id=None, cseq=0,
-                       expires=3600):
+    async def register(self, from_details, to_details, contact_details=None, password=None, call_id=None, headers=None,
+                       cseq=0, expires=3600):
         dialog = self._create_dialog(method="REGISTER",
                                      from_details=from_details,
                                      to_details=to_details,
@@ -130,7 +131,7 @@ class Peer:
             raise
 
     async def invite(self, from_details, to_details, contact_details=None, password=None, call_id=None, headers=None,
-                     payload=None, cseq=0):
+                     cseq=0, payload=None):
 
         if not call_id:
             call_id = str(uuid.uuid4())
