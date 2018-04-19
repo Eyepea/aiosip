@@ -46,7 +46,6 @@ async def on_subscribe(request, message):
     print('Subscription ended!')
 
 
-
 class Dialplan(aiosip.BaseDialplan):
 
     async def resolve(self, *args, **kwargs):

@@ -7,17 +7,22 @@ async def test_notify(test_server, protocol, loop, from_details, to_details):
     notify_list = [0, 1, 2, 3, 4]
     subscribe_future = loop.create_future()
 
-    async def subscribe(request, msg):
-        dialog = await request.prepare(status_code=200)
-        await asyncio.sleep(0.1)
+    class Dialplan(aiosip.BaseDialplan):
 
-        for i in notify_list:
-            await dialog.notify(payload=str(i))
-        subscribe_future.set_result(None)
+        async def resolve(self, *args, **kwargs):
+            await super().resolve(*args, **kwargs)
+            return self.subscribe
+
+        async def subscribe(request, msg):
+            dialog = await request.prepare(status_code=200)
+            await asyncio.sleep(0.1)
+
+            for i in notify_list:
+                await dialog.notify(payload=str(i))
+            subscribe_future.set_result(None)
 
     app = aiosip.Application(loop=loop)
-    server_app = aiosip.Application(loop=loop)
-    server_app.dialplan.add_user('pytest', {'SUBSCRIBE': subscribe})
+    server_app = aiosip.Application(loop=loop, dialplan=Dialplan())
     server = await test_server(server_app)
 
     peer = await app.connect(
@@ -46,21 +51,26 @@ async def test_authentication(test_server, protocol, loop, from_details, to_deta
     password = 'abcdefg'
     received_messages = list()
 
-    async def subscribe(request, message):
-        dialog = request._create_dialog()
+    class Dialplan(aiosip.BaseDialplan):
 
-        received_messages.append(message)
-        assert not dialog.validate_auth(message, password)
-        await dialog.unauthorized(message)
+        async def resolve(self, *args, **kwargs):
+            await super().resolve(*args, **kwargs)
+            return self.subscribe
 
-        async for message in dialog:
+        async def subscribe(request, message):
+            dialog = request._create_dialog()
+
             received_messages.append(message)
-            assert dialog.validate_auth(message, password)
-            await dialog.reply(message, 200)
+            assert not dialog.validate_auth(message, password)
+            await dialog.unauthorized(message)
+
+            async for message in dialog:
+                received_messages.append(message)
+                assert dialog.validate_auth(message, password)
+                await dialog.reply(message, 200)
 
     app = aiosip.Application(loop=loop)
-    server_app = aiosip.Application(loop=loop)
-    server_app.dialplan.add_user('pytest', {'SUBSCRIBE': subscribe})
+    server_app = aiosip.Application(loop=loop, dialplan=Dialplan())
     server = await test_server(server_app)
 
     peer = await app.connect(
@@ -86,23 +96,28 @@ async def test_invite(test_server, protocol, loop, from_details, to_details):
     call_established = loop.create_future()
     call_disconnected = loop.create_future()
 
-    async def invite(request, message):
-        dialog = await request.prepare(status_code=100)
-        await asyncio.sleep(0.1)
-        await dialog.reply(message, status_code=180)
-        await asyncio.sleep(0.1)
-        await dialog.reply(message, status_code=200)
-        call_established.set_result(None)
+    class Dialplan(aiosip.BaseDialplan):
 
-        async for message in dialog:
-            await dialog.reply(message, 200)
-            if message.method == 'BYE':
-                call_disconnected.set_result(None)
-                break
+        async def resolve(self, *args, **kwargs):
+            await super().resolve(*args, **kwargs)
+            return self.invite
+
+        async def invite(request, message):
+            dialog = await request.prepare(status_code=100)
+            await asyncio.sleep(0.1)
+            await dialog.reply(message, status_code=180)
+            await asyncio.sleep(0.1)
+            await dialog.reply(message, status_code=200)
+            call_established.set_result(None)
+
+            async for message in dialog:
+                await dialog.reply(message, 200)
+                if message.method == 'BYE':
+                    call_disconnected.set_result(None)
+                    break
 
     app = aiosip.Application(loop=loop, debug=True)
-    server_app = aiosip.Application(loop=loop, debug=True)
-    server_app.dialplan.add_user('pytest', {'INVITE': invite})
+    server_app = aiosip.Application(loop=loop, debug=True, dialplan=Dialplan())
     server = await test_server(server_app)
 
     peer = await app.connect(
@@ -134,15 +149,24 @@ async def test_invite(test_server, protocol, loop, from_details, to_details):
 async def test_cancel(test_server, protocol, loop, from_details, to_details):
     cancel_future = loop.create_future()
 
-    async def subscribe(dialog, request):
-        pending_subscription.cancel()
+    class Dialplan(aiosip.BaseDialplan):
 
-    async def cancel(dialog, request):
-        cancel_future.set_result(request)
+        async def resolve(self, *args, **kwargs):
+            await super().resolve(*args, **kwargs)
+
+            if kwargs['message'].method == 'SUBSCRIBE':
+                return self.subscribe
+            elif kwargs['message'].method == 'CANCEL':
+                return self.cancel
+
+        async def subscribe(dialog, request):
+            pending_subscription.cancel()
+
+        async def cancel(dialog, request):
+            cancel_future.set_result(request)
 
     app = aiosip.Application(loop=loop)
     server_app = aiosip.Application(loop=loop)
-    server_app.dialplan.add_user('pytest', {'SUBSCRIBE': subscribe, 'CANCEL': cancel})
     server = await test_server(server_app)
 
     peer = await app.connect(

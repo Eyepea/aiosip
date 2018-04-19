@@ -6,28 +6,39 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
     callback_complete = loop.create_future()
     callback_complete_proxy = loop.create_future()
 
-    async def subscribe(request, message):
-        await request.prepare(status_code=200)
-        callback_complete.set_result(message)
+    class ServerDialplan(aiosip.BaseDialplan):
 
-    async def proxy_subscribe(request, message):
-        dialog = request._create_dialog()
-        peer = await aiosip.utils.get_proxy_peer(dialog, message)
+        async def resolve(self, *args, **kwargs):
+            await super().resolve(*args, **kwargs)
 
-        async for proxy_response in peer.proxy_request(dialog, message, 0.1):
-            if proxy_response:
-                dialog.peer.proxy_response(proxy_response)
+            return self.subscribe
 
-        callback_complete_proxy.set_result(message)
+        async def subscribe(self, request, message):
+            await request.prepare(status_code=200)
+            callback_complete.set_result(message)
+
+    class ProxyDialplan(aiosip.BaseDialplan):
+        async def resolve(self, *args, **kwargs):
+            await super().resolve(*args, **kwargs)
+
+            return self.proxy_subscribe
+
+        async def proxy_subscribe(self, request, message):
+            dialog = request._create_dialog()
+            peer = await aiosip.utils.get_proxy_peer(dialog, message)
+
+            async for proxy_response in peer.proxy_request(dialog, message, 0.1):
+                if proxy_response:
+                    dialog.peer.proxy_response(proxy_response)
+
+            callback_complete_proxy.set_result(message)
 
     app = aiosip.Application(loop=loop, debug=True)
 
-    server_app = aiosip.Application(loop=loop, debug=True)
-    server_app.dialplan.add_user('pytest', {'SUBSCRIBE': subscribe})
+    server_app = aiosip.Application(loop=loop, debug=True, dialplan=ServerDialplan())
     await test_server(server_app)
 
-    proxy_app = aiosip.Application(loop=loop)
-    proxy_app.dialplan.add_user('pytest', {'SUBSCRIBE': proxy_subscribe})
+    proxy_app = aiosip.Application(loop=loop, dialplan=ProxyDialplan())
     proxy = await test_proxy(proxy_app)
 
     peer = await app.connect(
@@ -57,40 +68,51 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_detail
     callback_complete = loop.create_future()
     callback_complete_proxy = loop.create_future()
 
-    async def subscribe(request, message):
-        dialog = await request.prepare(status_code=200)
-        await asyncio.sleep(0.2)
-        await dialog.notify(payload='1')
+    class ServerDialpan(aiosip.BaseDialplan):
 
-    async def proxy_subscribe(request, message):
-        dialog = request._create_dialog()
-        peer = await aiosip.utils.get_proxy_peer(dialog, message)
+        async def resolve(self, *args, **kwargs):
+            await super().resolve(*args, **kwargs)
 
-        async for proxy_response in peer.proxy_request(dialog, message, 0.1):
-            if proxy_response:
-                dialog.peer.proxy_response(proxy_response)
+            return self.subscribe
 
-        # TODO: refactor
-        subscription = request.app._dialogs[frozenset((
-            message.to_details.details,
-            message.from_details.details,
-            message.headers['Call-ID']
-        ))]
+        async def subscribe(self, request, message):
+            dialog = await request.prepare(status_code=200)
+            await asyncio.sleep(0.2)
+            await dialog.notify(payload='1')
 
-        async for msg in subscription:
-            async for proxy_response in dialog.peer.proxy_request(subscription, msg):
+    class ProxyDialplan(aiosip.BaseDialplan):
+        async def resolve(self, *args, **kwargs):
+            await super().resolve(*args, **kwargs)
+
+            return self.proxy_subscribe
+
+        async def proxy_subscribe(self, request, message):
+            dialog = request._create_dialog()
+            peer = await aiosip.utils.get_proxy_peer(dialog, message)
+
+            async for proxy_response in peer.proxy_request(dialog, message, 0.1):
                 if proxy_response:
-                    peer.proxy_response(proxy_response)
-            callback_complete_proxy.set_result(msg)
+                    dialog.peer.proxy_response(proxy_response)
+
+            # TODO: refactor
+            subscription = request.app._dialogs[frozenset((
+                message.to_details.details,
+                message.from_details.details,
+                message.headers['Call-ID']
+            ))]
+
+            async for msg in subscription:
+                async for proxy_response in dialog.peer.proxy_request(subscription, msg):
+                    if proxy_response:
+                        peer.proxy_response(proxy_response)
+                callback_complete_proxy.set_result(msg)
 
     app = aiosip.Application(loop=loop, debug=True)
 
-    server_app = aiosip.Application(loop=loop, debug=True)
-    server_app.dialplan.add_user('pytest', {'SUBSCRIBE': subscribe})
+    server_app = aiosip.Application(loop=loop, debug=True, dialplan=ServerDialpan())
     await test_server(server_app)
 
-    proxy_app = aiosip.Application(loop=loop, debug=True)
-    proxy_app.dialplan.add_user('pytest', {'SUBSCRIBE': proxy_subscribe})
+    proxy_app = aiosip.Application(loop=loop, debug=True, dialplan=ProxyDialplan())
     proxy = await test_proxy(proxy_app)
 
     peer = await app.connect(
