@@ -17,10 +17,6 @@ sip_config = {
 }
 
 
-async def option(dialog, request):
-    await dialog.reply(request, status_code=200)
-
-
 async def run_subscription(peer, duration):
     subscription = await peer.subscribe(
         from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
@@ -65,7 +61,6 @@ def main():
 
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
-    app.dialplan.add_user('asterisk', option)
 
     if args.protocol == 'udp':
         loop.run_until_complete(start(app, aiosip.UDP, args.duration))

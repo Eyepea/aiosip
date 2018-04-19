@@ -91,6 +91,17 @@ async def on_subscribe(request, message):
     print("Subscription forwarding ended!")
 
 
+class Dialplan(aiosip.BaseDialplan):
+
+    async def resolve(self, *args, **kwargs):
+        await super().resolve(*args, **kwargs)
+
+        if kwargs['message'].method == 'SUBSCRIBE':
+            return on_subscribe
+        elif kwargs['message'].method == 'REGISTER':
+            return on_register
+
+
 def start(app, protocol):
     app.loop.run_until_complete(
         app.run(
@@ -116,10 +127,6 @@ def main():
 
     loop = asyncio.get_event_loop()
     app = aiosip.Application(loop=loop)
-    app.dialplan.add_user('*', {
-        'REGISTER': on_register,
-        'SUBSCRIBE': on_subscribe,
-    })
 
     if args.protocol == 'udp':
         start(app, aiosip.UDP)

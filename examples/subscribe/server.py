@@ -43,6 +43,15 @@ async def on_subscribe(request, message):
     print('Subscription ended!')
 
 
+class Dialplan(aiosip.BaseDialplan):
+
+    async def resolve(self, *args, **kwargs):
+        await super().resolve(*args, **kwargs)
+
+        if kwargs['message'].method == 'SUBSCRIBE':
+            return on_subscribe
+
+
 def start(app, protocol):
     app.loop.run_until_complete(
         app.run(
@@ -67,10 +76,7 @@ def main():
     args = parser.parse_args()
 
     loop = asyncio.get_event_loop()
-    app = aiosip.Application(loop=loop)
-    app.dialplan.add_user('subscriber', {
-        'SUBSCRIBE': on_subscribe
-    })
+    app = aiosip.Application(loop=loop, dialplan=Dialplan())
 
     if args.protocol == 'udp':
         start(app, aiosip.UDP)
