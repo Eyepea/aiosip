@@ -64,7 +64,7 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
     await app.close()
 
 
-async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_details, to_details):
+async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_details, to_details):  # noQa: C901
     callback_complete = loop.create_future()
     callback_complete_proxy = loop.create_future()
 

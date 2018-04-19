@@ -13,7 +13,7 @@ async def test_notify(test_server, protocol, loop, from_details, to_details):
             await super().resolve(*args, **kwargs)
             return self.subscribe
 
-        async def subscribe(request, msg):
+        async def subscribe(self, request, msg):
             dialog = await request.prepare(status_code=200)
             await asyncio.sleep(0.1)
 
@@ -57,7 +57,7 @@ async def test_authentication(test_server, protocol, loop, from_details, to_deta
             await super().resolve(*args, **kwargs)
             return self.subscribe
 
-        async def subscribe(request, message):
+        async def subscribe(self, request, message):
             dialog = request._create_dialog()
 
             received_messages.append(message)
@@ -102,7 +102,7 @@ async def test_invite(test_server, protocol, loop, from_details, to_details):
             await super().resolve(*args, **kwargs)
             return self.invite
 
-        async def invite(request, message):
+        async def invite(self, request, message):
             dialog = await request.prepare(status_code=100)
             await asyncio.sleep(0.1)
             await dialog.reply(message, status_code=180)
@@ -159,14 +159,14 @@ async def test_cancel(test_server, protocol, loop, from_details, to_details):
             elif kwargs['message'].method == 'CANCEL':
                 return self.cancel
 
-        async def subscribe(dialog, request):
+        async def subscribe(self, request, message):
             pending_subscription.cancel()
 
-        async def cancel(dialog, request):
-            cancel_future.set_result(request)
+        async def cancel(self, request, message):
+            cancel_future.set_result(message)
 
     app = aiosip.Application(loop=loop)
-    server_app = aiosip.Application(loop=loop)
+    server_app = aiosip.Application(loop=loop, dialplan=Dialplan())
     server = await test_server(server_app)
 
     peer = await app.connect(
