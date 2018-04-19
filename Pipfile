@@ -1,0 +1,17 @@
+[[source]]
+url = "https://pypi.python.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+multidict = ">=2.0"
+pyquery = "*"
+aiodns = "*"
+websockets = "*"
+
+[dev-packages]
+twine = "*"
+pytest-asyncio = "*"
+
+[requires]
+python_version = "3.6"

@@ -1,7 +1,0 @@
-multidict>=2.0
-pyquery
-twine
-wheel
-aiodns
-websockets
-pytest-asyncio

@@ -53,5 +53,3 @@ venv
 pyvenv
 .cache/
 
-Pipfile
-Pipfile.lock
