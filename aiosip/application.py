@@ -175,7 +175,7 @@ class Application(MutableMapping):
         try:
             route = await self.dialplan.resolve(
                 username=msg.from_details['uri']['user'],
-                message=msg,
+                method=msg.method,
                 protocol=peer.protocol,
                 local_addr=peer.local_addr,
                 remote_addr=peer.peer_addr

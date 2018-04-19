@@ -35,7 +35,7 @@ class Dialplan(aiosip.BaseDialplan):
     async def resolve(self, *args, **kwargs):
         await super().resolve(*args, **kwargs)
 
-        if kwargs['message'].method == 'INVITE':
+        if kwargs['method'] == 'INVITE':
             return on_invite
 
 

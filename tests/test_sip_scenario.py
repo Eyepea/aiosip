@@ -154,9 +154,9 @@ async def test_cancel(test_server, protocol, loop, from_details, to_details):
         async def resolve(self, *args, **kwargs):
             await super().resolve(*args, **kwargs)
 
-            if kwargs['message'].method == 'SUBSCRIBE':
+            if kwargs['method'] == 'SUBSCRIBE':
                 return self.subscribe
-            elif kwargs['message'].method == 'CANCEL':
+            elif kwargs['method'] == 'CANCEL':
                 return self.cancel
 
         async def subscribe(self, request, message):

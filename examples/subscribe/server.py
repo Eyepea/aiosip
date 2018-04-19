@@ -48,7 +48,7 @@ class Dialplan(aiosip.BaseDialplan):
     async def resolve(self, *args, **kwargs):
         await super().resolve(*args, **kwargs)
 
-        if kwargs['message'].method == 'SUBSCRIBE':
+        if kwargs['method'] == 'SUBSCRIBE':
             return on_subscribe
 
 
