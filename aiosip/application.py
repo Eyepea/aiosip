@@ -14,7 +14,7 @@ from collections import MutableMapping
 
 from . import __version__
 from .dialog import Dialog
-from .dialplan import Dialplan
+from .dialplan import BaseDialplan
 from .protocol import UDP, TCP, WS
 from .peers import UDPConnector, TCPConnector, WSConnector
 from .message import Response
@@ -39,7 +39,7 @@ class Application(MutableMapping):
                  middleware=(),
                  defaults=None,
                  debug=False,
-                 dialplan=None,
+                 dialplan=BaseDialplan(),
                  dns_resolver=aiodns.DNSResolver()
                  ):
 
@@ -62,7 +62,7 @@ class Application(MutableMapping):
         self._middleware = middleware
         self._tasks = list()
 
-        self.dialplan = dialplan or Dialplan()
+        self.dialplan = dialplan
         self.dialog_factory = dialog_factory
         self.loop = loop
 
@@ -162,35 +162,30 @@ class Application(MutableMapping):
         via_addr = via['host'], int(via['port'])
         peer = await connector.get_peer(protocol, via_addr)
 
-        router = await self.dialplan.resolve(
-            username=msg.from_details['uri']['user'],
-            protocol=peer.protocol,
-            local_addr=peer.local_addr,
-            remote_addr=peer.peer_addr
-        )
-
         async def reply(*args, **kwargs):
             dialog = peer._create_dialog(
                 method=msg.method,
                 from_details=Contact.from_header(msg.headers['To']),
                 to_details=Contact.from_header(msg.headers['From']),
-                call_id=call_id,
-                inbound=True
+                call_id=call_id
             )
 
             await dialog.reply(*args, **kwargs)
             await dialog.close(fast=True)
 
-        if not router:
-            await reply(msg, status_code=501)
-            return
-
-        route = router.get(msg.method)
-        if not route:
-            await reply(msg, status_code=501)
-            return
-
         try:
+            route = await self.dialplan.resolve(
+                username=msg.from_details['uri']['user'],
+                method=msg.method,
+                protocol=peer.protocol,
+                local_addr=peer.local_addr,
+                remote_addr=peer.peer_addr
+            )
+
+            if not route or not asyncio.iscoroutinefunction(route):
+                await reply(msg, status_code=501)
+                return
+
             t = asyncio.ensure_future(self._call_route(peer, route, msg))
             self._tasks.append(t)
             await t

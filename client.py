@@ -7,12 +7,12 @@ import random
 import aiosip
 
 sip_config = {
-    'srv_host': '127.0.0.1',
-    'srv_port': 6000,
+    'srv_host': 'qd.allocloud.com',
+    'srv_port': 10065,
     'realm': 'XXXXXX',
     'user': 'subscriber',
     'pwd': 'hunter2',
-    'local_host': '127.0.0.1',
+    'local_host': '0.0.0.0',
     'local_port': random.randint(6001, 6100)
 }
 
@@ -34,7 +34,8 @@ async def run_subscription(peer, duration):
     with contextlib.suppress(asyncio.TimeoutError):
         await asyncio.wait_for(reader(), timeout=duration)
 
-    await subscription.close()
+    if subscription.status_code == 200:
+        await subscription.close()
 
 
 async def start(app, protocol, duration):

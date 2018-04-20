@@ -30,6 +30,15 @@ async def on_invite(request, message):
             break
 
 
+class Dialplan(aiosip.BaseDialplan):
+
+    async def resolve(self, *args, **kwargs):
+        await super().resolve(*args, **kwargs)
+
+        if kwargs['method'] == 'INVITE':
+            return on_invite
+
+
 def start(app, protocol):
     app.loop.run_until_complete(
         app.run(
@@ -54,10 +63,7 @@ def main():
     args = parser.parse_args()
 
     loop = asyncio.get_event_loop()
-    app = aiosip.Application(loop=loop)
-    app.dialplan.add_user('aiosip', {
-        'INVITE': on_invite
-    })
+    app = aiosip.Application(loop=loop, dialplan=Dialplan())
 
     if args.protocol == 'udp':
         start(app, aiosip.UDP)

@@ -4,14 +4,20 @@ import aiosip
 async def test_subscribe(test_server, protocol, loop, from_details, to_details):
     callback_complete = loop.create_future()
 
-    async def handler(request, message):
-        await request.prepare(status_code=200)
-        callback_complete.set_result(message)
+    class Dialplan(aiosip.BaseDialplan):
+
+        async def resolve(self, *args, **kwargs):
+            await super().resolve(*args, **kwargs)
+
+            return self.on_subscribe
+
+        async def on_subscribe(self, request, message):
+            await request.prepare(status_code=200)
+            callback_complete.set_result(message)
 
     app = aiosip.Application(loop=loop)
 
-    server_app = aiosip.Application(loop=loop)
-    server_app.dialplan.add_user('pytest', {'SUBSCRIBE': handler})
+    server_app = aiosip.Application(loop=loop, dialplan=Dialplan())
     server = await test_server(server_app)
 
     peer = await app.connect(
@@ -36,7 +42,6 @@ async def test_subscribe(test_server, protocol, loop, from_details, to_details):
 async def test_response_501(test_server, protocol, loop, from_details, to_details):
     app = aiosip.Application(loop=loop)
     server_app = aiosip.Application(loop=loop)
-    server_app.dialplan.add_user('pytest', {'subscribe': None})
     server = await test_server(server_app)
     peer = await app.connect(
         protocol=protocol,
@@ -56,13 +61,20 @@ async def test_response_501(test_server, protocol, loop, from_details, to_detail
 
 
 async def test_exception_in_handler(test_server, protocol, loop, from_details, to_details):
-    async def handler(dialog, request):
-        raise RuntimeError('TestError')
+
+    class Dialplan(aiosip.BaseDialplan):
+
+        async def resolve(self, *args, **kwargs):
+            await super().resolve(*args, **kwargs)
+
+            return self.on_subscribe
+
+        async def on_subscribe(self, request, message):
+            raise RuntimeError('Test error')
 
     app = aiosip.Application(loop=loop)
 
-    server_app = aiosip.Application(loop=loop)
-    server_app.dialplan.add_user('pytest', {'SUBSCRIBE': handler})
+    server_app = aiosip.Application(loop=loop, dialplan=Dialplan())
     server = await test_server(server_app)
 
     peer = await app.connect(
