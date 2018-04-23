@@ -4,7 +4,7 @@ from collections import MutableMapping
 class Param(MutableMapping):
     def __init__(self, param=''):
         if param:
-            self._param = dict(item.split("=") for item in param.split(";"))
+            self._param = dict(item.split("=") for item in param.split(";") if '=' in item)
         else:
             self._param = {}
 
