@@ -92,6 +92,53 @@ async def test_authentication(test_server, protocol, loop, from_details, to_deta
     await app.close()
 
 
+async def test_authentication_rejection(test_server, protocol, loop, from_details, to_details):
+    received_messages = list()
+
+    class Dialplan(aiosip.BaseDialplan):
+
+        async def resolve(self, *args, **kwargs):
+            await super().resolve(*args, **kwargs)
+            return self.subscribe
+
+        async def subscribe(self, request, message):
+            dialog = request._create_dialog()
+
+            received_messages.append(message)
+            await dialog.unauthorized(message)
+
+            async for message in dialog:
+                received_messages.append(message)
+                await dialog.reply(message, 401)
+
+    app = aiosip.Application(loop=loop)
+    server_app = aiosip.Application(loop=loop, dialplan=Dialplan())
+    server = await test_server(server_app)
+
+    peer = await app.connect(
+        protocol=protocol,
+        remote_addr=(
+            server.sip_config['server_host'],
+            server.sip_config['server_port'],
+        )
+    )
+
+    result = await peer.register(
+        expires=1800,
+        from_details=aiosip.Contact.from_header(from_details),
+        to_details=aiosip.Contact.from_header(to_details),
+        password='testing_pass',
+    )
+
+    # wait long enough to ensure no improper retransmit
+    await asyncio.sleep(1)
+    assert len(received_messages) == 2
+    assert result.status_code == 401
+
+    await server_app.close()
+    await app.close()
+
+
 async def test_invite(test_server, protocol, loop, from_details, to_details):
     call_established = loop.create_future()
     call_disconnected = loop.create_future()
