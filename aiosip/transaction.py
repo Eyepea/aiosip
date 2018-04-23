@@ -145,6 +145,9 @@ class FutureTransaction(BaseTransaction):
         self.dialog.end_transaction(self)
 
     def _result(self, msg):
+        if self.authentification:
+            self.authentification.cancel()
+            self.authentification = None
         self._future.set_result(msg)
         self.dialog.end_transaction(self)
 
