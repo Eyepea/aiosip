@@ -13,7 +13,6 @@ async-timeout = "*"
 [dev-packages]
 twine = "*"
 pytest-asyncio = "*"
-"flake8" = "*"
 
 [requires]
 python_version = "3.6"

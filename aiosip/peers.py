@@ -32,6 +32,8 @@ class Peer:
     def _create_dialog(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
                        headers=None, payload=None, cseq=0, inbound=False):
 
+        from_details.add_tag()
+
         if not call_id:
             call_id = str(uuid.uuid4())
 
@@ -156,6 +158,7 @@ class Peer:
                 }
             )
 
+        from_details.add_tag()
         from .dialog import InviteDialog
         dialog = InviteDialog(
             app=self._app,

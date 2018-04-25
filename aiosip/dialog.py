@@ -58,11 +58,17 @@ class DialogBase:
 
     @property
     def dialog_id(self):
-        return frozenset((self.original_msg.to_details.details,
-                          self.original_msg.from_details.details,
+        return frozenset((self.original_msg.to_details['params'].get('tag'),
+                          self.original_msg.from_details['params']['tag'],
                           self.call_id))
 
     def _receive_response(self, msg):
+
+        if 'tag' not in self.to_details['params']:
+            del self.app._dialogs[self.dialog_id]
+            self.to_details['params']['tag'] = msg.to_details['params']['tag']
+            self.app._dialogs[self.dialog_id] = self
+
         try:
             transaction = self.transactions[msg.method][msg.cseq]
             transaction._incoming(msg)
@@ -74,7 +80,7 @@ class DialogBase:
                 LOG.debug('Response without Request. The Transaction may already be closed. \n%s', msg)
 
     def _prepare_request(self, method, contact_details=None, headers=None, payload=None, cseq=None, to_details=None):
-        self.from_details.add_tag()
+
         if not cseq:
             self.cseq += 1
 
@@ -211,7 +217,6 @@ class DialogBase:
 
     def _prepare_response(self, request, status_code, status_message=None, payload=None, headers=None,
                           contact_details=None):
-        self.from_details.add_tag()
 
         if contact_details:
             self.contact_details = contact_details
@@ -273,9 +278,6 @@ class Dialog(DialogBase):
             return await self._receive_request(msg)
 
     async def _receive_request(self, msg):
-        if 'tag' in msg.from_details['params']:
-            self.to_details['params']['tag'] = msg.from_details['params']['tag']
-
         await self._incoming.put(msg)
         self._maybe_close(msg)
 
@@ -332,6 +334,12 @@ class InviteDialog(DialogBase):
         self._waiter = asyncio.Future()
 
     async def receive_message(self, msg):  # noqa: C901
+
+        if 'tag' not in self.to_details['params']:
+            del self.app._dialogs[self.dialog_id]
+            self.to_details['params']['tag'] = msg.to_details['params']['tag']
+            self.app._dialogs[self.dialog_id] = self
+
         async def set_result(msg):
             self.ack(msg)
             if not self._waiter.done():
