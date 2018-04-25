@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 import logging
+import ipaddress
 import websockets
 
 from multidict import CIMultiDict
@@ -8,7 +9,7 @@ from multidict import CIMultiDict
 from . import utils
 from .contact import Contact
 from .protocol import UDP, TCP, WS
-from .dialog import Dialog, InviteDialog
+from .dialog import Dialog, InviteDialog, ProxyDialog
 
 LOG = logging.getLogger(__name__)
 
@@ -34,7 +35,8 @@ class Peer:
     def _create_dialog(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
                        headers=None, payload=None, cseq=0, inbound=False, dialog_factory=Dialog, **kwargs):
 
-        from_details.add_tag()
+        if not issubclass(dialog_factory, ProxyDialog):
+            from_details.add_tag()
 
         if not call_id:
             call_id = str(uuid.uuid4())
@@ -74,6 +76,7 @@ class Peer:
             inbound=inbound,
             **kwargs
         )
+
         LOG.debug('Creating: %s', dialog)
         self._app._dialogs[dialog.dialog_id] = dialog
         return dialog
@@ -186,6 +189,9 @@ class Peer:
         self._protocol = None
         self._disconnected_future.set_result(None)
 
+    def generate_via_headers(self, branch=utils.gen_branch()):
+        return f'SIP/2.0/{self._protocol.via} {self.local_addr[0]}:{self.local_addr[1]};branch={branch}'
+
     @property
     def local_addr(self):
         if self._protocol:
@@ -211,6 +217,12 @@ class BaseConnector:
         return await self._create_server(local_addr, sock, **kwargs)
 
     async def create_peer(self, peer_addr, local_addr=None, **kwargs):
+        try:
+            peer_addr = ipaddress.ip_address(peer_addr[0]).exploded, peer_addr[1]
+        except ValueError:
+            dns = await self._app.dns.query(peer_addr[0], 'A')
+            peer_addr = dns[0].host, peer_addr[1]
+
         try:
             if not local_addr:
                 peer = [peer for key, peer in self._peers.items() if key[0] == peer_addr][0]

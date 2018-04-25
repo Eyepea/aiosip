@@ -1,10 +1,13 @@
-import asyncio
 import enum
+import asyncio
 import logging
 
-from collections import defaultdict
 from multidict import CIMultiDict
+<<<<<<< HEAD
 from async_timeout import timeout as Timeout
+=======
+from collections import defaultdict
+>>>>>>> Update proxy for dialog tracking
 
 from . import utils
 from .message import Request, Response
@@ -459,3 +462,48 @@ class InviteDialog(DialogBase):
                     self._close()
 
         self._close()
+
+
+class ProxyDialog(DialogBase):
+    def __init__(self, *args, proxy_peer, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.proxy_peer = proxy_peer
+        self._incoming = asyncio.Queue()
+
+    @property
+    def dialog_id(self):
+        return frozenset((self.to_details['params']['tag'],
+                          self.from_details['params'].get('tag'),
+                          self.call_id))
+
+    async def receive_message(self, msg):
+        if 'tag' not in self.from_details['params'] and 'tag' in msg.to_details['params']:
+            del self.app._dialogs[self.dialog_id]
+            self.from_details['params']['tag'] = msg.to_details['params']['tag']
+            self.app._dialogs[self.dialog_id] = self
+
+        await self._incoming.put(msg)
+
+    async def recv(self):
+        return await self._incoming.get()
+
+    def proxy(self, message):
+        # TODO: should be cleaner
+        if not isinstance(message.headers['Via'], list):
+            message.headers['Via'] = [message.headers['Via'], ]
+
+        if f'{self.peer.peer_addr[0]}:{self.peer.peer_addr[1]}' in message.headers['Via'][0]:
+            message.headers['Via'].insert(0, self.proxy_peer.generate_via_headers())
+            self.proxy_peer.send_message(message)
+        elif f'{self.peer.local_addr[0]}:{self.peer.local_addr[1]}' in message.headers['Via'][0]:
+            message.headers['Via'].pop(0)
+            self.proxy_peer.send_message(message)
+        elif f'{self.proxy_peer.peer_addr[0]}:{self.proxy_peer.peer_addr[1]}' in message.headers['Via'][0]:
+            message.headers['Via'].insert(0, self.peer.generate_via_headers())
+            self.peer.send_message(message)
+        elif f'{self.proxy_peer.local_addr[0]}:{self.proxy_peer.local_addr[1]}' in message.headers['Via'][0]:
+            message.headers['Via'].pop(0)
+            self.peer.send_message(message)
+        else:
+            message.headers['Via'].insert(0, self.proxy_peer.generate_via_headers())
+            self.proxy_peer.send_message(message)
