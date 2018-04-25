@@ -127,46 +127,6 @@ class Peer:
         await dialog.start()
         return dialog
 
-    async def proxy_request(self, dialog, msg, timeout=5):
-        if msg.method == 'ACK':
-            self.send_message(msg)
-            return
-
-        proxy_dialog = self._app._dialogs.get(dialog.call_id)
-        if not proxy_dialog:
-            proxy_dialog = self._create_dialog(
-                method=msg.method,
-                from_details=dialog.from_details,
-                to_details=dialog.to_details,
-                call_id=dialog.call_id
-            )
-        elif msg.cseq in proxy_dialog.transactions[msg.method]:
-            proxy_dialog.transactions[msg.method][msg.cseq].retransmit()
-            return
-
-        if isinstance(msg.headers['Via'], str):
-            msg.headers['Via'] = [msg.headers['Via']]
-
-        host, port = self.local_addr
-        if self._app.defaults['override_contact_host']:
-            host = self._app.defaults['override_contact_host']
-
-        msg.headers['Via'].insert(0, 'SIP/2.0/%(protocol)s {host}:{port};branch={branch}'.format(
-                host=host,
-                port=port,
-                branch=utils.gen_branch(10)
-            )
-        )
-
-        async for response in proxy_dialog.start_proxy_transaction(msg, timeout=timeout):
-            yield response
-
-        proxy_dialog._maybe_close(msg)
-
-    def proxy_response(self, msg):
-        msg.headers['Via'].pop(0)
-        return self.send_message(msg)
-
     @property
     def protocol(self):
         return type(self._protocol)
