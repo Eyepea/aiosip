@@ -133,11 +133,20 @@ class Application(MutableMapping):
 
     async def _dispatch(self, protocol, msg, addr):
         call_id = msg.headers['Call-ID']
-        dialog = self._dialogs.get(frozenset((msg.to_details.details,
-                                              msg.from_details.details,
-                                              call_id)))
+        dialog = None
 
-        if dialog:
+        # First incoming request of dialogs do not yet have a tag in to headers
+        if 'tag' in msg.to_details['params']:
+            dialog = self._dialogs.get(frozenset((msg.to_details['params']['tag'],
+                                                  msg.from_details['params']['tag'],
+                                                  call_id)))
+
+        # First response of dialogs have a tag in the to header but the dialog is not
+        # yet aware of it. Try to match only with the from header tag
+        if dialog is None:
+            dialog = self._dialogs.get(frozenset((None, msg.from_details['params']['tag'], call_id)))
+
+        if dialog is not None:
             await dialog.receive_message(msg)
             return
 
