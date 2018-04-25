@@ -13,7 +13,6 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
 
         async def resolve(self, *args, **kwargs):
             await super().resolve(*args, **kwargs)
-
             return self.subscribe
 
         async def subscribe(self, request, message):
@@ -27,14 +26,10 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
             return self.proxy_subscribe
 
         async def proxy_subscribe(self, request, message):
-            dialog = request._create_dialog()
-            peer = await aiosip.utils.get_proxy_peer(dialog, message)
-
-            async for proxy_response in peer.proxy_request(dialog, message, 0.1):
-                if proxy_response:
-                    dialog.peer.proxy_response(proxy_response)
-
+            dialog = await request.proxy(message)
             callback_complete_proxy.set_result(message)
+            async for message in dialog:
+                dialog.proxy(message)
 
     app = aiosip.Application(loop=loop, debug=True)
 
@@ -75,6 +70,7 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
 
 @pytest.mark.parametrize('close_order', itertools.permutations(('client', 'server', 'proxy')))  # noQa C901: too complex
 async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_details, to_details, close_order):
+
     callback_complete = loop.create_future()
     callback_complete_proxy = loop.create_future()
 
@@ -97,25 +93,13 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_detail
             return self.proxy_subscribe
 
         async def proxy_subscribe(self, request, message):
-            dialog = request._create_dialog()
-            peer = await aiosip.utils.get_proxy_peer(dialog, message)
+            dialog = await request.proxy(message)
 
-            async for proxy_response in peer.proxy_request(dialog, message, 0.1):
-                if proxy_response:
-                    dialog.peer.proxy_response(proxy_response)
+            async for message in dialog:
+                dialog.proxy(message)
 
-            # TODO: refactor
-            subscription = request.app._dialogs[frozenset((
-                message.to_details.details,
-                message.from_details.details,
-                message.headers['Call-ID']
-            ))]
-
-            async for msg in subscription:
-                async for proxy_response in dialog.peer.proxy_request(subscription, msg):
-                    if proxy_response:
-                        peer.proxy_response(proxy_response)
-                callback_complete_proxy.set_result(msg)
+                if message.method == 'NOTIFY':
+                    callback_complete_proxy.set_result(message)
 
     app = aiosip.Application(loop=loop, debug=True)
 

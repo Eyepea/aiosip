@@ -10,15 +10,16 @@ LOG = logging.getLogger(__name__)
 class UDP(asyncio.DatagramProtocol):
     def __init__(self, app, loop):
         self.app = app
+        self.via = 'UDP'
         self.loop = loop
         self.transport = None
         self.ready = asyncio.Future()
 
     def send_message(self, msg, addr):
         if isinstance(msg.headers['Via'], str):
-            msg.headers['Via'] %= {'protocol': 'UDP'}
+            msg.headers['Via'] %= {'protocol': self.via}
         else:
-            msg.headers['Via'][0] %= {'protocol': 'UDP'}
+            msg.headers['Via'][0] %= {'protocol': self.via}
 
         LOG.log(5, 'Sending to: "%s" via UDP: "%s"', addr, msg)
         self.transport.sendto(msg.encode(), addr)
@@ -44,6 +45,7 @@ class UDP(asyncio.DatagramProtocol):
 class TCP(asyncio.Protocol):
     def __init__(self, app, loop):
         self.app = app
+        self.via = 'TCP'
         self.loop = loop
         self.transport = None
         self.ready = asyncio.Future()
@@ -51,9 +53,9 @@ class TCP(asyncio.Protocol):
 
     def send_message(self, msg, addr=None):
         if isinstance(msg.headers['Via'], str):
-            msg.headers['Via'] %= {'protocol': 'TCP'}
+            msg.headers['Via'] %= {'protocol': self.via}
         else:
-            msg.headers['Via'][0] %= {'protocol': 'TCP'}
+            msg.headers['Via'][0] %= {'protocol': self.via}
 
         LOG.log(5, 'Sent via TCP: "%s"', msg)
         self.transport.write(msg.encode())
@@ -90,9 +92,9 @@ class WS:
         self.local_addr = local_addr
         self.peer_addr = peer_addr
         if isinstance(peer_addr, str) and peer_addr.startswith('wss:'):
-            self.protocol = 'WSS'
+            self.via = 'WSS'
         else:
-            self.protocol = 'WS'
+            self.via = 'WS'
         self.transport = self
         self.websocket = websocket
         self.websocket_pump = asyncio.ensure_future(self.run())
@@ -108,11 +110,11 @@ class WS:
 
     def send_message(self, msg, addr):
         if isinstance(msg.headers['Via'], str):
-            msg.headers['Via'] %= {'protocol': self.protocol}
+            msg.headers['Via'] %= {'protocol': self.via}
         else:
-            msg.headers['Via'][0] %= {'protocol': self.protocol}
+            msg.headers['Via'][0] %= {'protocol': self.via}
 
-        LOG.log(5, 'Sending via %s: "%s"', self.protocol, msg)
+        LOG.log(5, 'Sending via %s: "%s"', self.via, msg)
         asyncio.ensure_future(self.websocket.send(msg.encode().decode('utf8')))
 
     async def run(self):
@@ -126,7 +128,7 @@ class WS:
             headers, data = data.split(b'\r\n\r\n', 1)
             msg = message.Message.from_raw_headers(headers)
             msg._raw_payload = data
-            LOG.log(5, 'Received via %s: "%s"', self.protocol, msg)
+            LOG.log(5, 'Received via %s: "%s"', self.via, msg)
             asyncio.ensure_future(self.app._dispatch(self, msg, self.peer_addr))
 
         await self.websocket.close()
