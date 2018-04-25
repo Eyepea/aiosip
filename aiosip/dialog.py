@@ -11,7 +11,7 @@ from collections import defaultdict
 
 from . import utils
 from .message import Request, Response
-from .transaction import UnreliableTransaction, ProxyTransaction
+from .transaction import UnreliableTransaction
 
 from .auth import Auth
 
@@ -183,17 +183,6 @@ class DialogBase:
         transaction = UnreliableTransaction(self, original_msg=msg, loop=self.app.loop)
         self.transactions[method or msg.method][msg.cseq] = transaction
         return await transaction.start()
-
-    async def start_proxy_transaction(self, msg, timeout=5):
-        if msg.cseq not in self.transactions[msg.method]:
-            transaction = ProxyTransaction(dialog=self, original_msg=msg, loop=self.app.loop, timeout=timeout)
-            self.transactions[msg.method][msg.cseq] = transaction
-            async for response in transaction.start():
-                yield response
-        else:
-            LOG.debug('Message already transmitted: %s %s, %s', msg.cseq, msg.method, msg.headers['Call-ID'])
-            self.transactions[msg.method][msg.cseq].retransmit()
-        return
 
     def end_transaction(self, transaction):
         to_delete = list()
