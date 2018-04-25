@@ -327,7 +327,13 @@ class Dialog(DialogBase):
 
 class InviteDialog(DialogBase):
     def __init__(self, *args, **kwargs):
-        super().__init__(method="INVITE", *args, **kwargs)
+
+        if 'method' not in kwargs:
+            kwargs['method'] = 'INVITE'
+        elif kwargs['method'] != 'INVITE':
+            raise ValueError('method must be INVITE')
+
+        super().__init__(*args, **kwargs)
 
         self._queue = asyncio.Queue()
         self._state = CallState.Calling

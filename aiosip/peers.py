@@ -1,12 +1,14 @@
+import uuid
 import asyncio
 import logging
-import uuid
-
 import websockets
 
+from multidict import CIMultiDict
+
 from . import utils
-from .protocol import UDP, TCP, WS
 from .contact import Contact
+from .protocol import UDP, TCP, WS
+from .dialog import Dialog, InviteDialog
 
 LOG = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ class Peer:
         self._protocol.send_message(msg, addr=self.peer_addr)
 
     def _create_dialog(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
-                       headers=None, payload=None, cseq=0, inbound=False):
+                       headers=None, payload=None, cseq=0, inbound=False, dialog_factory=Dialog, **kwargs):
 
         from_details.add_tag()
 
@@ -57,7 +59,7 @@ class Peer:
                 }
             )
 
-        dialog = self._app.dialog_factory(
+        dialog = dialog_factory(
             method=method,
             app=self._app,
             from_details=from_details,
@@ -70,13 +72,15 @@ class Peer:
             payload=payload,
             cseq=cseq,
             inbound=inbound,
+            **kwargs
         )
         LOG.debug('Creating: %s', dialog)
         self._app._dialogs[dialog.dialog_id] = dialog
         return dialog
 
     async def request(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
-                      headers=None, cseq=0, payload=None):
+                      headers=None, cseq=0, payload=None, dialog_factory=Dialog, **kwargs):
+
         dialog = self._create_dialog(method=method,
                                      from_details=from_details,
                                      to_details=to_details,
@@ -85,7 +89,9 @@ class Peer:
                                      payload=payload,
                                      password=password,
                                      call_id=call_id,
-                                     cseq=cseq)
+                                     cseq=cseq,
+                                     dialog_factory=dialog_factory,
+                                     **kwargs)
         try:
             response = await dialog.start()
             dialog.status_code = response.status_code
@@ -95,84 +101,26 @@ class Peer:
             dialog.cancel()
             raise
 
-    async def subscribe(self, from_details, to_details, contact_details=None, password=None, call_id=None, headers=None,
-                        cseq=0, expires=3600):
-        dialog = self._create_dialog(method="SUBSCRIBE",
-                                     from_details=from_details,
-                                     to_details=to_details,
-                                     contact_details=contact_details,
-                                     password=password,
-                                     call_id=call_id,
-                                     cseq=cseq,
-                                     headers=headers)
-        try:
-            response = await dialog.start(expires=expires)
-            dialog.status_code = response.status_code
-            dialog.status_message = response.status_message
-            return dialog
-        except asyncio.CancelledError:
-            dialog.cancel()
-            raise
+    async def subscribe(self, expires=3600, **kwargs):
+        headers = kwargs.get('headers', CIMultiDict())
 
-    async def register(self, from_details, to_details, contact_details=None, password=None, call_id=None, headers=None,
-                       cseq=0, expires=3600):
-        dialog = self._create_dialog(method="REGISTER",
-                                     from_details=from_details,
-                                     to_details=to_details,
-                                     contact_details=contact_details,
-                                     password=password,
-                                     call_id=call_id,
-                                     cseq=cseq)
-        try:
-            response = await dialog.start(expires=expires)
-            dialog.status_code = response.status_code
-            dialog.status_message = response.status_message
-            return dialog
-        except asyncio.CancelledError:
-            dialog.cancel()
-            raise
+        if expires:
+            headers['Expires'] = expires
 
-    async def invite(self, from_details, to_details, contact_details=None, password=None, call_id=None, headers=None,
-                     cseq=0, payload=None):
+        return await self.request('SUBSCRIBE', **kwargs)
 
-        if not call_id:
-            call_id = str(uuid.uuid4())
+    async def register(self, expires=3600, **kwargs):
 
-        if not contact_details:
-            host, port = self.local_addr
+        headers = kwargs.get('headers', CIMultiDict())
 
-            # No way to get the public local addr in UDP. Allow an override or select the From host
-            # Maybe with https://bugs.python.org/issue31203
-            if self._app.defaults['override_contact_host']:
-                host = self._app.defaults['override_contact_host']
-            elif host == '0.0.0.0' or host.startswith('127.'):
-                host = from_details['uri']['host']
+        if expires:
+            headers['Expires'] = expires
 
-            contact_details = Contact(
-                {
-                    'uri': 'sip:{username}@{host_and_port};transport={protocol}'.format(
-                        username=from_details['uri']['user'],
-                        host_and_port=utils.format_host_and_port(host, port),
-                        protocol=type(self._protocol).__name__.lower()
-                    )
-                }
-            )
+        return await self.request('REGISTER', **kwargs)
 
-        from_details.add_tag()
-        from .dialog import InviteDialog
-        dialog = InviteDialog(
-            app=self._app,
-            from_details=from_details,
-            to_details=to_details,
-            call_id=call_id,
-            peer=self,
-            contact_details=contact_details,
-            headers=headers,
-            payload=payload,
-            password=None,
-            cseq=cseq
-        )
-        self._app._dialogs[dialog.dialog_id] = dialog
+    async def invite(self, dialog_factory=InviteDialog, **kwargs):
+
+        dialog = self._create_dialog(dialog_factory=dialog_factory, method='INVITE', **kwargs)
         await dialog.start()
         return dialog
 

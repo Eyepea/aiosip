@@ -35,7 +35,6 @@ class Application(MutableMapping):
 
     def __init__(self, *,
                  loop=None,
-                 dialog_factory=Dialog,
                  middleware=(),
                  defaults=None,
                  debug=False,
@@ -63,7 +62,6 @@ class Application(MutableMapping):
         self._tasks = list()
 
         self.dialplan = dialplan
-        self.dialog_factory = dialog_factory
         self.loop = loop
 
     @property
@@ -107,14 +105,15 @@ class Application(MutableMapping):
                 self.app = app
                 self.dialog = None
 
-            def _create_dialog(self):
+            def _create_dialog(self, dialog_factory=Dialog):
                 if not self.dialog:
                     self.dialog = peer._create_dialog(
                         method=msg.method,
                         from_details=Contact.from_header(msg.headers['To']),
                         to_details=Contact.from_header(msg.headers['From']),
                         call_id=call_id,
-                        inbound=True
+                        inbound=True,
+                        dialog_factory=dialog_factory
                     )
                 return self.dialog
 
