@@ -1,8 +1,11 @@
-import asyncio
 import aiosip
+import pytest
+import asyncio
+import itertools
 
 
-async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_details, to_details):
+@pytest.mark.parametrize('close_order', itertools.permutations(('client', 'server', 'proxy')))  # noQa C901: too complex
+async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_details, to_details, close_order):
     callback_complete = loop.create_future()
     callback_complete_proxy = loop.create_future()
 
@@ -59,12 +62,19 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
     assert received_request_server.payload == received_request_proxy.payload
     assert received_request_server.headers == received_request_proxy.headers
 
-    await server_app.close()
-    await proxy_app.close()
-    await app.close()
+    for item in close_order:
+        if item == 'client':
+            await app.close()
+        elif item == 'server':
+            await server_app.close()
+        elif item == 'proxy':
+            await proxy_app.close()
+        else:
+            raise ValueError('Invalid close_order')
 
 
-async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_details, to_details):  # noQa: C901
+@pytest.mark.parametrize('close_order', itertools.permutations(('client', 'server', 'proxy')))  # noQa C901: too complex
+async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_details, to_details, close_order):
     callback_complete = loop.create_future()
     callback_complete_proxy = loop.create_future()
 
@@ -140,6 +150,12 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_detail
     assert received_notify_server.payload == received_notify_proxy.payload
     assert received_notify_server.headers == received_notify_proxy.headers
 
-    await server_app.close()
-    await proxy_app.close()
-    await app.close()
+    for item in close_order:
+        if item == 'client':
+            await app.close()
+        elif item == 'server':
+            await server_app.close()
+        elif item == 'proxy':
+            await proxy_app.close()
+        else:
+            raise ValueError('Invalid close_order')

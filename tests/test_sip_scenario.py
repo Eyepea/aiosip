@@ -3,7 +3,7 @@ import pytest
 import asyncio
 
 
-async def test_notify(test_server, protocol, loop, from_details, to_details):
+async def test_notify(test_server, protocol, loop, from_details, to_details, close_order):
     notify_list = [0, 1, 2, 3, 4]
     subscribe_future = loop.create_future()
 
@@ -14,12 +14,18 @@ async def test_notify(test_server, protocol, loop, from_details, to_details):
             return self.subscribe
 
         async def subscribe(self, request, msg):
-            dialog = await request.prepare(status_code=200)
+            expires = int(msg.headers['Expires'])
+            dialog = await request.prepare(status_code=200, headers={'Expires': expires})
             await asyncio.sleep(0.1)
 
             for i in notify_list:
                 await dialog.notify(payload=str(i))
             subscribe_future.set_result(None)
+
+            async for msg in dialog:
+                if msg.method == 'SUBSCRIBE':
+                    expires = int(msg.headers['Expires'])
+                    await dialog.reply(msg, status_code=200, headers={'Expires': expires})
 
     app = aiosip.Application(loop=loop)
     server_app = aiosip.Application(loop=loop, dialplan=Dialplan())
@@ -43,11 +49,15 @@ async def test_notify(test_server, protocol, loop, from_details, to_details):
 
     await subscribe_future
 
-    await server_app.close()
-    await app.close()
+    if close_order[0] == 'client':
+        await app.close()
+        await server_app.close()
+    else:
+        await server_app.close()
+        await app.close()
 
 
-async def test_authentication(test_server, protocol, loop, from_details, to_details):
+async def test_authentication(test_server, protocol, loop, from_details, to_details, close_order):
     password = 'abcdefg'
     received_messages = list()
 
@@ -66,8 +76,10 @@ async def test_authentication(test_server, protocol, loop, from_details, to_deta
 
             async for message in dialog:
                 received_messages.append(message)
-                assert dialog.validate_auth(message, password)
-                await dialog.reply(message, 200)
+                if dialog.validate_auth(message, password):
+                    await dialog.reply(message, 200)
+                else:
+                    await dialog.unauthorized(message)
 
     app = aiosip.Application(loop=loop)
     server_app = aiosip.Application(loop=loop, dialplan=Dialplan())
@@ -88,11 +100,15 @@ async def test_authentication(test_server, protocol, loop, from_details, to_deta
     assert len(received_messages) == 2
     assert 'Authorization' in received_messages[1].headers
 
-    await server_app.close()
-    await app.close()
+    if close_order[0] == 'client':
+        await app.close()
+        await server_app.close()
+    else:
+        await server_app.close()
+        await app.close()
 
 
-async def test_authentication_rejection(test_server, protocol, loop, from_details, to_details):
+async def test_authentication_rejection(test_server, protocol, loop, from_details, to_details, close_order):
     received_messages = list()
 
     class Dialplan(aiosip.BaseDialplan):
@@ -135,11 +151,15 @@ async def test_authentication_rejection(test_server, protocol, loop, from_detail
     assert len(received_messages) == 2
     assert result.status_code == 401
 
-    await server_app.close()
-    await app.close()
+    if close_order[0] == 'client':
+        await app.close()
+        await server_app.close()
+    else:
+        await server_app.close()
+        await app.close()
 
 
-async def test_invite(test_server, protocol, loop, from_details, to_details):
+async def test_invite(test_server, protocol, loop, from_details, to_details, close_order):
     call_established = loop.create_future()
     call_disconnected = loop.create_future()
 
@@ -189,11 +209,15 @@ async def test_invite(test_server, protocol, loop, from_details, to_details):
 
     assert responses == [100, 180, 200]
 
-    await app.close()
-    await server_app.close()
+    if close_order[0] == 'client':
+        await app.close()
+        await server_app.close()
+    else:
+        await server_app.close()
+        await app.close()
 
 
-async def test_cancel(test_server, protocol, loop, from_details, to_details):
+async def test_cancel(test_server, protocol, loop, from_details, to_details, close_order):
     cancel_future = loop.create_future()
 
     class Dialplan(aiosip.BaseDialplan):
@@ -232,5 +256,9 @@ async def test_cancel(test_server, protocol, loop, from_details, to_details):
     result = await cancel_future
     assert result.method == 'CANCEL'
 
-    await app.close()
-    await server_app.close()
+    if close_order[0] == 'client':
+        await app.close()
+        await server_app.close()
+    else:
+        await server_app.close()
+        await app.close()
