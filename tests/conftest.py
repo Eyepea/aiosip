@@ -1,8 +1,7 @@
-import asyncio
-
 import aiosip
 import pytest
-
+import asyncio
+import itertools
 
 pytest_plugins = ['aiosip.pytest_plugin']
 
@@ -119,3 +118,8 @@ def to_details(request):
 @pytest.fixture
 def loop(event_loop):
     return event_loop
+
+
+@pytest.fixture(params=itertools.permutations(('client', 'server')))
+def close_order(request):
+    return request.param

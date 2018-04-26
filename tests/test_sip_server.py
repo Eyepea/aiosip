@@ -1,7 +1,7 @@
 import aiosip
 
 
-async def test_subscribe(test_server, protocol, loop, from_details, to_details):
+async def test_subscribe(test_server, protocol, loop, from_details, to_details, close_order):
     callback_complete = loop.create_future()
 
     class Dialplan(aiosip.BaseDialplan):
@@ -35,11 +35,15 @@ async def test_subscribe(test_server, protocol, loop, from_details, to_details):
 
     assert received_request.method == 'SUBSCRIBE'
 
-    await server_app.close()
-    await app.close()
+    if close_order[0] == 'client':
+        await app.close()
+        await server_app.close()
+    else:
+        await server_app.close()
+        await app.close()
 
 
-async def test_response_501(test_server, protocol, loop, from_details, to_details):
+async def test_response_501(test_server, protocol, loop, from_details, to_details, close_order):
     app = aiosip.Application(loop=loop)
     server_app = aiosip.Application(loop=loop)
     server = await test_server(server_app)
@@ -56,11 +60,15 @@ async def test_response_501(test_server, protocol, loop, from_details, to_detail
     assert subscription.status_code == 501
     assert subscription.status_message == 'Not Implemented'
 
-    await server_app.close()
-    await app.close()
+    if close_order[0] == 'client':
+        await app.close()
+        await server_app.close()
+    else:
+        await server_app.close()
+        await app.close()
 
 
-async def test_exception_in_handler(test_server, protocol, loop, from_details, to_details):
+async def test_exception_in_handler(test_server, protocol, loop, from_details, to_details, close_order):
 
     class Dialplan(aiosip.BaseDialplan):
 
@@ -90,5 +98,9 @@ async def test_exception_in_handler(test_server, protocol, loop, from_details, t
     assert subscription.status_code == 500
     assert subscription.status_message == 'Server Internal Error'
 
-    await server_app.close()
-    await app.close()
+    if close_order[0] == 'client':
+        await app.close()
+        await server_app.close()
+    else:
+        await server_app.close()
+        await app.close()

@@ -8,10 +8,12 @@ multidict = ">=2.0"
 pyquery = "*"
 aiodns = "*"
 websockets = "*"
+async-timeout = "*"
 
 [dev-packages]
 twine = "*"
 pytest-asyncio = "*"
+"flake8" = "*"
 
 [requires]
 python_version = "3.6"

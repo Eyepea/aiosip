@@ -14,7 +14,8 @@ requirements = [
    'multidict>=2.0',
    'pyquery',
    'aiodns',
-   'websockets'
+   'websockets',
+   'async_timeout'
 ]
 
 test_requirements = [

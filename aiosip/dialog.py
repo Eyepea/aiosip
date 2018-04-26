@@ -4,6 +4,7 @@ import logging
 
 from collections import defaultdict
 from multidict import CIMultiDict
+from async_timeout import timeout as Timeout
 
 from . import utils
 from .message import Request, Response
@@ -151,9 +152,18 @@ class DialogBase:
 
     def _close(self):
         LOG.debug('Closing: %s', self)
+        if self._closing:
+            self._closing.cancel()
+
         for transactions in self.transactions.values():
             for transaction in transactions.values():
                 transaction.close()
+
+        # Should not be necessary once dialog are correctly tracked
+        try:
+            del self.app._dialogs[self.dialog_id]
+        except KeyError as e:
+            pass
 
     def _connection_lost(self):
         for transactions in self.transactions.values():
@@ -187,10 +197,11 @@ class DialogBase:
         for item in to_delete:
             del self.transactions[item[0]][item[1]]
 
-    async def request(self, method, contact_details=None, headers=None, payload=None):
+    async def request(self, method, contact_details=None, headers=None, payload=None, timeout=None):
         msg = self._prepare_request(method, contact_details, headers, payload)
         if msg.method != 'ACK':
-            return await self.start_unreliable_transaction(msg)
+            async with Timeout(timeout):
+                return await self.start_unreliable_transaction(msg)
         else:
             self.peer.send_message(msg)
 
@@ -274,7 +285,7 @@ class Dialog(DialogBase):
             headers['Expires'] = int(expires)
         return await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
 
-    async def close(self, fast=False, headers=None, *args, **kwargs):
+    async def close(self, headers=None, *args, **kwargs):
         if not self._closed:
             self._closed = True
             result = None
@@ -282,7 +293,11 @@ class Dialog(DialogBase):
                 headers = CIMultiDict(headers or {})
                 if 'Expires' not in headers:
                     headers['Expires'] = 0
-                result = await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
+                try:
+                    result = await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
+                finally:
+                    self._close()
+
             self._close()
             return result
 
@@ -409,7 +424,7 @@ class InviteDialog(DialogBase):
         for item in to_delete:
             del self.transactions[item[0]][item[1]]
 
-    async def close(self):
+    async def close(self, timeout=None):
         if not self._closed:
             self._closed = True
 
@@ -422,9 +437,11 @@ class InviteDialog(DialogBase):
             if msg:
                 transaction = UnreliableTransaction(self, original_msg=msg, loop=self.app.loop)
                 self.transactions[msg.method][msg.cseq] = transaction
-                await transaction.start()
+
+                try:
+                    async with Timeout(timeout):
+                        await transaction.start()
+                finally:
+                    self._close()
 
         self._close()
-
-    def _close(self):
-        pass

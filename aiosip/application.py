@@ -167,11 +167,12 @@ class Application(MutableMapping):
                 method=msg.method,
                 from_details=Contact.from_header(msg.headers['To']),
                 to_details=Contact.from_header(msg.headers['From']),
-                call_id=call_id
+                call_id=call_id,
+                inbound=True
             )
 
             await dialog.reply(*args, **kwargs)
-            await dialog.close(fast=True)
+            await dialog.close()
 
         try:
             route = await self.dialplan.resolve(
@@ -226,7 +227,12 @@ class Application(MutableMapping):
     def register_on_finish(self, func, *args, **kwargs):
         self._finish_callbacks.insert(0, (func, args, kwargs))
 
-    async def close(self):
+    async def close(self, timeout=5):
+        for dialog in set(self._dialogs.values()):
+            try:
+                await dialog.close(timeout=timeout)
+            except asyncio.TimeoutError:
+                pass
         for connector in self._connectors.values():
             await connector.close()
         for task in self._tasks:
