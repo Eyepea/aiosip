@@ -76,12 +76,12 @@ class Application(MutableMapping):
         for peer in self.peers:
             yield from peer._dialogs.values()
 
-    async def connect(self, remote_addr, protocol=UDP, *, local_addr=None):
+    async def connect(self, remote_addr, protocol=UDP, *, local_addr=None, **kwargs):
         connector = self._connectors[protocol]
-        peer = await connector.create_peer(remote_addr, local_addr=local_addr)
+        peer = await connector.create_peer(remote_addr, local_addr=local_addr, **kwargs)
         return peer
 
-    async def run(self, *, local_addr=None, protocol=UDP, sock=None):
+    async def run(self, *, local_addr=None, protocol=UDP, sock=None, **kwargs):
 
         if not local_addr and not sock:
             raise ValueError('One of "local_addr", "sock" is mandatory')
@@ -91,7 +91,7 @@ class Application(MutableMapping):
             local_addr = None, None
 
         connector = self._connectors[protocol]
-        server = await connector.create_server(local_addr, sock)
+        server = await connector.create_server(local_addr, sock, **kwargs)
         return server
 
     async def _call_route(self, peer, route, msg):
