@@ -256,10 +256,10 @@ class BaseConnector:
         self._peers = {}
         self._servers = {}
 
-    async def create_server(self, local_addr, sock):
-        return await self._create_server(local_addr, sock)
+    async def create_server(self, local_addr, sock, **kwargs):
+        return await self._create_server(local_addr, sock, **kwargs)
 
-    async def create_peer(self, peer_addr, local_addr=None):
+    async def create_peer(self, peer_addr, local_addr=None, **kwargs):
         try:
             if not local_addr:
                 peer = [peer for key, peer in self._peers.items() if key[0] == peer_addr][0]
@@ -267,7 +267,7 @@ class BaseConnector:
                 peer = self._peers[(peer_addr, local_addr)]
         except (KeyError, IndexError):
             peer = self._create_peer(peer_addr)
-            await self._connect_peer(peer, local_addr)
+            await self._connect_peer(peer, local_addr, **kwargs)
             LOG.debug('Creating: %s', peer)
             return peer
         else:
@@ -279,8 +279,8 @@ class BaseConnector:
         self._peers[(peer_addr, None)] = peer
         return peer
 
-    async def _connect_peer(self, peer, local_addr):
-        peer._connected(await self._create_connection(peer_addr=peer.peer_addr, local_addr=local_addr))
+    async def _connect_peer(self, peer, local_addr, **kwargs):
+        peer._connected(await self._create_connection(peer_addr=peer.peer_addr, local_addr=local_addr, **kwargs))
         if (peer.peer_addr, None) in self._peers:
             del self._peers[(peer.peer_addr, None)]
         if (peer.peer_addr, peer.local_addr) not in self._peers:
@@ -308,10 +308,10 @@ class BaseConnector:
             await server.wait_closed()
         self._servers = {}
 
-    async def _create_server(self, local_addr, sock):
+    async def _create_server(self, local_addr, sock, **kwargs):
         raise NotImplementedError()
 
-    async def _create_connection(self, peer_addr, local_addr):
+    async def _create_connection(self, peer_addr, local_addr, **kwargs):
         raise NotImplementedError()
 
     async def _dispatch(self, protocol, peer_addr):
@@ -319,16 +319,18 @@ class BaseConnector:
 
 
 class TCPConnector(BaseConnector):
-    async def _create_server(self, local_addr, sock):
+    async def _create_server(self, local_addr, sock, ssl=None):
         server = await self._loop.create_server(
             lambda: TCP(app=self._app, loop=self._loop),
             host=local_addr[0],
             port=local_addr[1],
-            sock=sock)
+            sock=sock,
+            ssl=ssl
+        )
         self._servers[local_addr] = server
         return server
 
-    async def _create_connection(self, peer_addr, local_addr):
+    async def _create_connection(self, peer_addr, local_addr, ssl=None):
         try:
             return self._protocols[(peer_addr, local_addr)]
         except KeyError:
@@ -336,7 +338,9 @@ class TCPConnector(BaseConnector):
                 lambda: TCP(app=self._app, loop=self._loop),
                 host=peer_addr[0],
                 port=peer_addr[1],
-                local_addr=local_addr)
+                local_addr=local_addr,
+                ssl=ssl
+            )
             local_addr = transport.get_extra_info('sockname')
             self._protocols[(peer_addr, local_addr)] = proto
             return proto
