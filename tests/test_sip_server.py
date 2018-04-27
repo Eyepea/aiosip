@@ -1,4 +1,5 @@
 import aiosip
+from ursine import URI
 
 
 async def test_subscribe(test_server, protocol, loop, from_details, to_details, close_order):
@@ -27,8 +28,8 @@ async def test_subscribe(test_server, protocol, loop, from_details, to_details, 
 
     await peer.subscribe(
         expires=1800,
-        from_details=aiosip.Contact.from_header(from_details),
-        to_details=aiosip.Contact.from_header(to_details),
+        from_details=URI(from_details),
+        to_details=URI(to_details),
     )
 
     received_request = await callback_complete
@@ -53,8 +54,8 @@ async def test_response_501(test_server, protocol, loop, from_details, to_detail
     )
 
     subscription = await peer.subscribe(
-        from_details=aiosip.Contact.from_header(from_details),
-        to_details=aiosip.Contact.from_header(to_details),
+        from_details=URI(from_details),
+        to_details=URI(to_details),
     )
 
     assert subscription.status_code == 501
@@ -91,8 +92,8 @@ async def test_exception_in_handler(test_server, protocol, loop, from_details, t
     )
 
     subscription = await peer.subscribe(
-        from_details=aiosip.Contact.from_header(from_details),
-        to_details=aiosip.Contact.from_header(to_details),
+        from_details=URI(from_details),
+        to_details=URI(to_details),
     )
 
     assert subscription.status_code == 500

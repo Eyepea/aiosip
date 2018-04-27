@@ -7,10 +7,10 @@ from multidict import CIMultiDict
 from async_timeout import timeout as Timeout
 
 from . import utils
+from .auth import Auth
 from .message import Request, Response
 from .transaction import UnreliableTransaction, ProxyTransaction
-
-from .auth import Auth
+from .utils import get_details
 
 
 LOG = logging.getLogger(__name__)
@@ -58,8 +58,8 @@ class DialogBase:
 
     @property
     def dialog_id(self):
-        return frozenset((self.original_msg.to_details.details,
-                          self.original_msg.from_details.details,
+        return frozenset((get_details(self.original_msg.to_details),
+                          get_details(self.original_msg.from_details),
                           self.call_id))
 
     def _receive_response(self, msg):
@@ -74,7 +74,7 @@ class DialogBase:
                 LOG.debug('Response without Request. The Transaction may already be closed. \n%s', msg)
 
     def _prepare_request(self, method, contact_details=None, headers=None, payload=None, cseq=None, to_details=None):
-        self.from_details.add_tag()
+        self.from_details = self.from_details.with_tag()
         if not cseq:
             self.cseq += 1
 
@@ -211,7 +211,7 @@ class DialogBase:
 
     def _prepare_response(self, request, status_code, status_message=None, payload=None, headers=None,
                           contact_details=None):
-        self.from_details.add_tag()
+        self.from_details = self.from_details.with_tag()
 
         if contact_details:
             self.contact_details = contact_details
@@ -273,9 +273,7 @@ class Dialog(DialogBase):
             return await self._receive_request(msg)
 
     async def _receive_request(self, msg):
-        if 'tag' in msg.from_details['params']:
-            self.to_details['params']['tag'] = msg.from_details['params']['tag']
-
+        self.to_details = self.to_details.with_tag(msg.from_details.tag)
         await self._incoming.put(msg)
         self._maybe_close(msg)
 
@@ -385,8 +383,7 @@ class InviteDialog(DialogBase):
                 return await self._receive_request(msg)
 
     async def _receive_request(self, msg):
-        if 'tag' in msg.from_details['params']:
-            self.to_details['params']['tag'] = msg.from_details['params']['tag']
+        self.to_details = self.to_details.with_tag(msg.from_details.tag)
 
         if msg.method == 'BYE':
             self._closed = True

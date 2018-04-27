@@ -1,6 +1,7 @@
 import aiosip
 import pytest
 import asyncio
+from ursine import URI
 
 
 async def test_notify(test_server, protocol, loop, from_details, to_details, close_order):
@@ -38,8 +39,8 @@ async def test_notify(test_server, protocol, loop, from_details, to_details, clo
 
     subscribe_dialog = await peer.subscribe(
         expires=1800,
-        from_details=aiosip.Contact.from_header(from_details),
-        to_details=aiosip.Contact.from_header(to_details),
+        from_details=URI(from_details),
+        to_details=URI(to_details),
     )
 
     for expected in notify_list:
@@ -92,8 +93,8 @@ async def test_authentication(test_server, protocol, loop, from_details, to_deta
 
     await peer.subscribe(
         expires=1800,
-        from_details=aiosip.Contact.from_header(from_details),
-        to_details=aiosip.Contact.from_header(to_details),
+        from_details=URI(from_details),
+        to_details=URI(to_details),
         password=password
     )
 
@@ -141,8 +142,8 @@ async def test_authentication_rejection(test_server, protocol, loop, from_detail
 
     result = await peer.register(
         expires=1800,
-        from_details=aiosip.Contact.from_header(from_details),
-        to_details=aiosip.Contact.from_header(to_details),
+        from_details=URI(from_details),
+        to_details=URI(to_details),
         password='testing_pass',
     )
 
@@ -193,8 +194,8 @@ async def test_invite(test_server, protocol, loop, from_details, to_details, clo
     )
 
     call = await peer.invite(
-        from_details=aiosip.Contact.from_header(from_details),
-        to_details=aiosip.Contact.from_header(to_details),
+        from_details=URI(from_details),
+        to_details=URI(to_details),
     )
 
     responses = list()
@@ -246,8 +247,8 @@ async def test_cancel(test_server, protocol, loop, from_details, to_details, clo
     )
 
     pending_subscription = asyncio.ensure_future(peer.subscribe(
-        from_details=aiosip.Contact.from_header(from_details),
-        to_details=aiosip.Contact.from_header(to_details),
+        from_details=URI(from_details),
+        to_details=URI(to_details),
     ))
 
     with pytest.raises(asyncio.CancelledError):

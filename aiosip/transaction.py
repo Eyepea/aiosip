@@ -69,21 +69,21 @@ class BaseTransaction:
             if self.attempts < 1:
                 self._error(AuthentificationFailed('Too many unauthorized attempts!'))
                 return
-            username = msg.to_details['uri']['user']
+            username = msg.to_details.user
         elif msg.method.upper() == 'INVITE':
             self.attempts -= 1
             if self.attempts < 1:
                 self._error(AuthentificationFailed('Too many unauthorized attempts!'))
                 return
-            username = msg.from_details['uri']['user']
+            username = msg.from_details.user
         else:
-            username = msg.from_details['uri']['user']
+            username = msg.from_details.user
 
         self.original_msg.cseq += 1
         self.original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
             authenticate=msg.headers['WWW-Authenticate'],
             method=msg.method,
-            uri=msg.to_details['uri'].short_uri(),
+            uri=msg.to_details.short_uri(),
             username=username,
             password=self.dialog.password)
         )
@@ -99,7 +99,7 @@ class BaseTransaction:
             authenticate=msg.headers['Proxy-Authenticate'],
             method=msg.method,
             uri=str(self.to_details),
-            username=self.to_details['uri']['user'],
+            username=self.to_details.user,
             password=self.dialog.password))
         self.dialog.send_message(msg.method,
                                  headers=self.original_msg.headers,

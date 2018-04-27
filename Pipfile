@@ -9,6 +9,7 @@ pyquery = "*"
 aiodns = "*"
 websockets = "*"
 async-timeout = "*"
+ursine = ">=0.2.4"
 
 [dev-packages]
 twine = "*"

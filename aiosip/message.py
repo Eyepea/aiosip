@@ -2,11 +2,11 @@ import logging
 import re
 import uuid
 
-from pyquery import PyQuery
 from multidict import CIMultiDict
+from pyquery import PyQuery
+from ursine import URI
 
 from . import utils
-from .contact import Contact
 from .auth import Auth
 
 FIRST_LINE_PATTERN = {
@@ -54,8 +54,8 @@ class Message:
 
         if 'Via' not in self.headers:
             self.headers['Via'] = 'SIP/2.0/%(protocol)s ' + \
-                utils.format_host_and_port(self.contact_details['uri']['host'],
-                                           self.contact_details['uri']['port']) + \
+                utils.format_host_and_port(self.contact_details.host,
+                                           self.contact_details.port) + \
                 ';branch=%s' % utils.gen_branch(10)
 
     @property
@@ -75,7 +75,7 @@ class Message:
     @property
     def from_details(self):
         if not hasattr(self, '_from_details'):
-            self._from_details = Contact.from_header(self.headers['From'])
+            self._from_details = URI(self.headers['From'])
         return self._from_details
 
     @from_details.setter
@@ -85,7 +85,7 @@ class Message:
     @property
     def to_details(self):
         if not hasattr(self, '_to_details'):
-            self._to_details = Contact.from_header(self.headers['To'])
+            self._to_details = URI(self.headers['To'])
         return self._to_details
 
     @to_details.setter
@@ -96,7 +96,7 @@ class Message:
     def contact_details(self):
         if not hasattr(self, '_contact_details'):
             if 'Contact' in self.headers:
-                self._contact_details = Contact.from_header(self.headers['Contact'])
+                self._contact_details = URI(self.headers['Contact'])
             else:
                 self._contact_details = None
         return self._contact_details
@@ -259,7 +259,7 @@ class Request(Message):
         if not first_line:
             self._first_line = FIRST_LINE_PATTERN['request']['str'].format(
                 method=self.method,
-                to_uri=str(self.to_details['uri'].short_uri())
+                to_uri=self.to_details.short_uri()
             )
         else:
             self._first_line = first_line
@@ -276,14 +276,14 @@ class Request(Message):
     @property
     def to_details(self):
         if not hasattr(self, '_to_details'):
-            self._to_details = Contact.from_header(self.headers['To'])
+            self._to_details = URI(self.headers['To'])
         return self._to_details
 
     @to_details.setter
     def to_details(self, to_details):
         self._to_details = to_details
         self._first_line = FIRST_LINE_PATTERN['request']['str'].format(method=self.method,
-                                                                       to_uri=str(self._to_details['uri'].short_uri()))
+                                                                       to_uri=str(self._to_details.short_uri()))
 
     def __str__(self):
         return '%s%s%s' % (self._first_line, utils.EOL, super().__str__())

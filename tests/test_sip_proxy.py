@@ -2,6 +2,9 @@ import aiosip
 import pytest
 import asyncio
 import itertools
+from ursine import URI
+
+from aiosip.utils import get_details
 
 
 @pytest.mark.parametrize('close_order', itertools.permutations(('client', 'server', 'proxy')))  # noQa C901: too complex
@@ -51,8 +54,8 @@ async def test_proxy_subscribe(test_server, test_proxy, protocol, loop, from_det
 
     await peer.subscribe(
         expires=1800,
-        from_details=aiosip.Contact.from_header(from_details),
-        to_details=aiosip.Contact.from_header(to_details),
+        from_details=URI(from_details),
+        to_details=URI(to_details),
     )
 
     received_request_server = await asyncio.wait_for(callback_complete, timeout=2)
@@ -106,8 +109,8 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_detail
 
             # TODO: refactor
             subscription = request.app._dialogs[frozenset((
-                message.to_details.details,
-                message.from_details.details,
+                get_details(message.to_details),
+                get_details(message.from_details),
                 message.headers['Call-ID']
             ))]
 
@@ -132,8 +135,8 @@ async def test_proxy_notify(test_server, test_proxy, protocol, loop, from_detail
 
     subscription = await peer.subscribe(
         expires=1800,
-        from_details=aiosip.Contact.from_header(from_details),
-        to_details=aiosip.Contact.from_header(to_details)
+        from_details=URI(from_details),
+        to_details=URI(to_details)
     )
 
     async for msg in subscription:
