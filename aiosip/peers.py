@@ -3,10 +3,10 @@ import logging
 import uuid
 
 import websockets
+from ursine import URI
 
 from . import utils
 from .protocol import UDP, TCP, WS
-from .contact import Contact
 
 LOG = logging.getLogger(__name__)
 
@@ -43,16 +43,14 @@ class Peer:
             if self._app.defaults['override_contact_host']:
                 host = self._app.defaults['override_contact_host']
             elif host == '0.0.0.0' or host.startswith('127.'):
-                host = from_details['uri']['host']
+                host = from_details.host
 
-            contact_details = Contact(
-                {
-                    'uri': 'sip:{username}@{host_and_port};transport={protocol}'.format(
-                        username=from_details['uri']['user'],
-                        host_and_port=utils.format_host_and_port(host, port),
-                        protocol=type(self._protocol).__name__.lower()
-                    )
-                }
+            contact_details = URI.build(
+                scheme='sip',
+                user=from_details.user,
+                host=host,
+                port=port,
+                parameters={'transport': type(self._protocol).__name__.lower()},
             )
 
         dialog = self._app.dialog_factory(
@@ -144,16 +142,14 @@ class Peer:
             if self._app.defaults['override_contact_host']:
                 host = self._app.defaults['override_contact_host']
             elif host == '0.0.0.0' or host.startswith('127.'):
-                host = from_details['uri']['host']
+                host = from_details.host
 
-            contact_details = Contact(
-                {
-                    'uri': 'sip:{username}@{host_and_port};transport={protocol}'.format(
-                        username=from_details['uri']['user'],
-                        host_and_port=utils.format_host_and_port(host, port),
-                        protocol=type(self._protocol).__name__.lower()
-                    )
-                }
+            contact_details = URI.build(
+                scheme='sip',
+                user=from_details.user,
+                host=host,
+                port=port,
+                parameters={'transport': type(self._protocol).__name__.lower()},
             )
 
         from .dialog import InviteDialog

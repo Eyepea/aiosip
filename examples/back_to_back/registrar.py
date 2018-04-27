@@ -26,9 +26,8 @@ async def on_register(request, message):
         return
 
     # TODO: multiple contact fields
-    contact_uri = message.contact_details['uri']
-    user = contact_uri['user']
-    addr = contact_uri['host'], contact_uri['port']
+    user = message.contact_details.user
+    addr = message.contact_details.host, message.contact_details.port
     locations[user].add(addr)
     print('Registration established for {} at {}'.format(user, addr))
 
@@ -46,8 +45,7 @@ async def on_register(request, message):
 
 async def on_subscribe(request, message):
     expires = int(message.headers['Expires'])
-    to_uri = message.to_details['uri']
-    user = to_uri['user']
+    user = message.to_details.user
 
     if user not in locations:
         # TODO: this needs to destory the dialog

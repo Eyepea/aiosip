@@ -7,6 +7,7 @@ import logging
 import aiodns
 from contextlib import suppress
 import traceback
+from ursine import URI
 
 __all__ = ['Application']
 
@@ -18,8 +19,8 @@ from .dialplan import BaseDialplan
 from .protocol import UDP, TCP, WS
 from .peers import UDPConnector, TCPConnector, WSConnector
 from .message import Response
-from .contact import Contact
 from .via import Via
+from .utils import get_details
 
 
 LOG = logging.getLogger(__name__)
@@ -111,8 +112,8 @@ class Application(MutableMapping):
                 if not self.dialog:
                     self.dialog = peer._create_dialog(
                         method=msg.method,
-                        from_details=Contact.from_header(msg.headers['To']),
-                        to_details=Contact.from_header(msg.headers['From']),
+                        from_details=URI(msg.headers['To']),
+                        to_details=URI(msg.headers['From']),
                         call_id=call_id,
                         inbound=True
                     )
@@ -133,12 +134,15 @@ class Application(MutableMapping):
 
     async def _dispatch(self, protocol, msg, addr):
         call_id = msg.headers['Call-ID']
-        dialog = self._dialogs.get(frozenset((msg.to_details.details,
-                                              msg.from_details.details,
+        dialog = self._dialogs.get(frozenset((get_details(msg.to_details),
+                                              get_details(msg.from_details),
                                               call_id)))
 
         if dialog:
-            await dialog.receive_message(msg)
+            try:
+                await dialog.receive_message(msg)
+            except Exception:
+                LOG.exception("Error dispatching message in dialog")
             return
 
         # If we got an ACK, but nowhere to deliver it, drop it. If we
@@ -165,8 +169,8 @@ class Application(MutableMapping):
         async def reply(*args, **kwargs):
             dialog = peer._create_dialog(
                 method=msg.method,
-                from_details=Contact.from_header(msg.headers['To']),
-                to_details=Contact.from_header(msg.headers['From']),
+                from_details=URI(msg.headers['To']),
+                to_details=URI(msg.headers['From']),
                 call_id=call_id,
                 inbound=True
             )

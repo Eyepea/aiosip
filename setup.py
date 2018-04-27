@@ -12,6 +12,7 @@ history = open('HISTORY.rst').read().replace('.. :changelog:', '')
 
 requirements = [
    'multidict>=2.0',
+   'ursine',
    'pyquery',
    'aiodns',
    'websockets',

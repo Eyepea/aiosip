@@ -111,21 +111,25 @@ async def get_host_ip(host, dns):
         return dns[0].host
 
 
+def get_details(uri):
+    return uri.scheme, uri.transport, uri.host, uri.port
+
+
 async def get_proxy_peer(dialog, msg):
-    host = await get_host_ip(msg.from_details['uri']['host'], dialog.app.dns)
-    port = msg.from_details['uri']['port'] or msg.contact_details['uri']['port'] or dialog.to_details['uri']['port']
+    host = await get_host_ip(msg.from_details.host, dialog.app.dns)
+    port = msg.from_details.port or msg.contact_details.port or dialog.to_details.port
 
     if (host, port) == dialog.peer.peer_addr or (host, port) == dialog.contact_details:
         for peer in dialog.app.peers:
-            if msg.method == 'NOTIFY' and peer.subscriber[msg.to_details['uri']['user']]:
+            if msg.method == 'NOTIFY' and peer.subscriber[msg.to_details.user]:
                 return peer
-            if msg.to_details['uri']['user'] in peer.registered:
+            if msg.to_details.user in peer.registered:
                 return peer
         else:
             raise RuntimeError('No proxy peer found for: {}'.format(msg))
     else:
-        host = await get_host_ip(msg.to_details['uri']['host'], dialog.app.dns)
-        port = msg.to_details['uri']['port'] or dialog.from_details['uri']['port']
+        host = await get_host_ip(msg.to_details.host, dialog.app.dns)
+        port = msg.to_details.port or dialog.from_details.port
         if host and port:
             peer = await dialog.app.connect(remote_addr=(host, port), protocol=dialog.peer.protocol)
             return peer
