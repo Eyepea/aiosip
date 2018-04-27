@@ -3,17 +3,13 @@ import asyncio
 import logging
 
 from multidict import CIMultiDict
-<<<<<<< HEAD
-from async_timeout import timeout as Timeout
-=======
 from collections import defaultdict
->>>>>>> Update proxy for dialog tracking
+from async_timeout import timeout as Timeout
 
 from . import utils
+from .auth import Auth
 from .message import Request, Response
 from .transaction import UnreliableTransaction
-
-from .auth import Auth
 
 
 LOG = logging.getLogger(__name__)
