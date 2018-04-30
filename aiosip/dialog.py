@@ -492,3 +492,6 @@ class ProxyDialog(DialogBase):
         else:
             message.headers['Via'].insert(0, self.proxy_peer.generate_via_headers())
             self.proxy_peer.send_message(message)
+
+    async def close(self, *args, **kwargs):
+        self._close()

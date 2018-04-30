@@ -105,19 +105,20 @@ class Peer:
             raise
 
     async def subscribe(self, expires=3600, **kwargs):
-        headers = kwargs.get('headers', CIMultiDict())
 
         if expires:
+            headers = kwargs.get('headers', CIMultiDict())
             headers['Expires'] = expires
+            kwargs['headers'] = headers
 
         return await self.request('SUBSCRIBE', **kwargs)
 
     async def register(self, expires=3600, **kwargs):
 
-        headers = kwargs.get('headers', CIMultiDict())
-
         if expires:
+            headers = kwargs.get('headers', CIMultiDict())
             headers['Expires'] = expires
+            kwargs['headers'] = headers
 
         return await self.request('REGISTER', **kwargs)
 
