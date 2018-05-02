@@ -13,7 +13,7 @@ __all__ = ['Application']
 from collections import MutableMapping
 
 from . import __version__
-from .dialog import Dialog, ProxyDialog
+from .dialog import Dialog
 from .dialplan import BaseDialplan
 from .protocol import UDP, TCP, WS
 from .peers import UDPConnector, TCPConnector, WSConnector
@@ -126,17 +126,6 @@ class Application(MutableMapping):
                     await dialog.close()
                     return None
 
-                return dialog
-
-            async def proxy(self, message, proxy_peer=None, dialog_factory=ProxyDialog):
-                if not proxy_peer:
-                    proxy_peer = await self.app.connect(
-                        remote_addr=(message.to_details.host, message.to_details.port),
-                        protocol=peer.protocol
-                    )
-
-                dialog = self._create_dialog(dialog_factory=dialog_factory, proxy_peer=proxy_peer)
-                dialog.proxy(message)
                 return dialog
 
         request = Request()
