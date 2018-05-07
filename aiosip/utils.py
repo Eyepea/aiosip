@@ -1,7 +1,8 @@
 import random
 import string
-import ipaddress
+import asyncio
 import logging
+import ipaddress
 
 
 LOG = logging.getLogger(__name__)
@@ -131,3 +132,12 @@ async def get_proxy_peer(dialog, msg):
             return peer
 
     raise RuntimeError('Can not find proxy destination for: {}'.format(msg))
+
+
+def _callback(f):
+    try:
+        f.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        LOG.exception(e)

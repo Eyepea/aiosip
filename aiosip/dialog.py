@@ -144,6 +144,7 @@ class DialogBase:
             await self.close()
 
         self._closing = asyncio.ensure_future(closure())
+        self._closing.add_done_callback(utils._callback)
 
     def _maybe_close(self, msg):
         if msg.method in ('REGISTER', 'SUBSCRIBE') and not self.inbound:
