@@ -78,6 +78,9 @@ class Peer:
 
         LOG.debug('Creating: %s', dialog)
         self._app._dialogs[dialog.dialog_id] = dialog
+        self._app._dialogs[
+            frozenset((dialog.original_msg.to_details['params'].get('tag'), None, dialog.call_id))
+        ] = dialog
         return dialog
 
     async def request(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,

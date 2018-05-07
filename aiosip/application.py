@@ -71,8 +71,7 @@ class Application(MutableMapping):
 
     @property
     def dialogs(self):
-        for peer in self.peers:
-            yield from peer._dialogs.values()
+        yield from set(self._dialogs.values())
 
     async def connect(self, remote_addr, protocol=UDP, *, local_addr=None, **kwargs):
         connector = self._connectors[protocol]
