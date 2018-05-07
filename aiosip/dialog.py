@@ -266,6 +266,17 @@ class Dialog(DialogBase):
             return await self._receive_request(msg)
 
     async def _receive_request(self, msg):
+
+        if 'tag' in msg.to_details['params']:
+            try:
+                del self.app._dialogs[
+                    frozenset((self.original_msg.to_details['params'].get('tag'),
+                               None,
+                               self.call_id))
+                ]
+            except KeyError:
+                pass
+
         await self._incoming.put(msg)
         self._maybe_close(msg)
 
