@@ -13,7 +13,7 @@ __all__ = ['Application']
 from collections import MutableMapping
 
 from . import __version__
-from .dialog import Dialog
+from .dialog import DialogRequest
 from .dialplan import BaseDialplan
 from .protocol import UDP, TCP, WS
 from .peers import UDPConnector, TCPConnector, WSConnector
@@ -95,40 +95,8 @@ class Application(MutableMapping):
         for middleware_factory in reversed(self._middleware):
             route = await middleware_factory(route)
 
-        app = self
-        call_id = msg.headers['Call-ID']
-
-        # TODO: refactor
-        class Request:
-            def __init__(self):
-                self.app = app
-                self.dialog = None
-
-            def _create_dialog(self, dialog_factory=Dialog, **kwargs):
-                if not self.dialog:
-                    self.dialog = peer._create_dialog(
-                        method=msg.method,
-                        from_details=Contact.from_header(msg.headers['To']),
-                        to_details=Contact.from_header(msg.headers['From']),
-                        call_id=call_id,
-                        inbound=True,
-                        dialog_factory=dialog_factory,
-                        **kwargs
-                    )
-                return self.dialog
-
-            async def prepare(self, status_code, *args, **kwargs):
-                dialog = self._create_dialog()
-
-                await dialog.reply(msg, status_code, *args, **kwargs)
-                if status_code >= 300:
-                    await dialog.close()
-                    return None
-
-                return dialog
-
-        request = Request()
-        await route(request, msg)
+        request = DialogRequest(self, msg, peer)
+        await route(request)
 
     async def _dispatch(self, protocol, msg, addr):
         call_id = msg.headers['Call-ID']

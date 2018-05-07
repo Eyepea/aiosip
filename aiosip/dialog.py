@@ -8,6 +8,7 @@ from async_timeout import timeout as Timeout
 
 from . import utils
 from .auth import Auth
+from .contact import Contact
 from .message import Request, Response
 from .transaction import UnreliableTransaction
 
@@ -118,9 +119,9 @@ class DialogBase:
         ack = self._prepare_request('ACK', cseq=msg.cseq, to_details=msg.to_details, headers=headers, *args, **kwargs)
         self.peer.send_message(ack)
 
-    async def unauthorized(self, msg):
+    async def unauthorized(self, msg, **kwargs):
         self._nonce = utils.gen_str(10)
-        headers = CIMultiDict()
+        headers = kwargs.get('headers', CIMultiDict())
         headers['WWW-Authenticate'] = str(Auth(nonce=self._nonce, algorithm='md5', realm='sip'))
         await self.reply(msg, status_code=401, headers=headers)
 
@@ -200,8 +201,8 @@ class DialogBase:
         else:
             self.peer.send_message(msg)
 
-    async def reply(self, request, status_code, status_message=None, payload=None, headers=None, contact_details=None):
-        msg = self._prepare_response(request, status_code, status_message, payload, headers, contact_details)
+    async def reply(self, message, status_code, status_message=None, payload=None, headers=None, contact_details=None):
+        msg = self._prepare_response(message, status_code, status_message, payload, headers, contact_details)
         self.peer.send_message(msg)
 
     def _prepare_response(self, request, status_code, status_message=None, payload=None, headers=None,
@@ -459,3 +460,52 @@ class InviteDialog(DialogBase):
                     self._close()
 
         self._close()
+
+
+class DialogRequest:
+
+    def __init__(self, app, message, peer):
+        self.app = app
+        self.peer = peer
+        self.message = message
+        self.dialog = None
+
+    def _create_dialog(self, dialog_factory=Dialog, **kwargs):
+        if not self.dialog:
+            self.dialog = self.peer._create_dialog(
+                method=self.message.method,
+                from_details=Contact.from_header(self.message.headers['To']),
+                to_details=Contact.from_header(self.message.headers['From']),
+                call_id=self.message.headers['Call-ID'],
+                inbound=True,
+                dialog_factory=dialog_factory,
+                **kwargs
+            )
+        return self.dialog
+
+    async def prepare(self, status_code, *args, **kwargs):
+        dialog = self._create_dialog()
+
+        await dialog.reply(self.message, status_code, *args, **kwargs)
+        if status_code >= 300:
+            await dialog.close()
+            return None
+
+        return dialog
+
+    async def unauthorized(self, *args, **kwargs):
+        dialog = self._create_dialog()
+        await dialog.unauthorized(self.message, *args, **kwargs)
+        return dialog
+
+    @property
+    def headers(self):
+        return self.message.headers
+
+    @property
+    def payload(self):
+        return self.message.payload
+
+    @property
+    def method(self):
+        return self.message.method
