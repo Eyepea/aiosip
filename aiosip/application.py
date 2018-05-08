@@ -103,6 +103,7 @@ class Application(MutableMapping):
             def __init__(self):
                 self.app = app
                 self.dialog = None
+                self.middlewares = list()
 
             def _create_dialog(self, dialog_factory=Dialog, **kwargs):
                 if not self.dialog:
@@ -113,6 +114,8 @@ class Application(MutableMapping):
                         call_id=call_id,
                         inbound=True,
                         dialog_factory=dialog_factory,
+                        middlewares=self.middlewares,
+                        headers=msg.headers,
                         **kwargs
                     )
                 return self.dialog
@@ -125,6 +128,11 @@ class Application(MutableMapping):
                     await dialog.close()
                     return None
 
+                return dialog
+
+            async def unauthorized(self, msg):
+                dialog = self._create_dialog()
+                await dialog.unauthorized(msg)
                 return dialog
 
         request = Request()
@@ -192,7 +200,7 @@ class Application(MutableMapping):
                 remote_addr=peer.peer_addr
             )
 
-            if not route or not asyncio.iscoroutinefunction(route):
+            if not route:
                 await reply(msg, status_code=501)
                 return
 
