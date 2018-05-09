@@ -4,7 +4,6 @@ __author__ = 'Ludovic Gasc (GMLudo)'
 __email__ = 'gmludo@gmail.com'
 __version__ = '0.1.0'
 
-from .auth import Auth
 from .dialog import *
 from .message import *
 from .uri import *

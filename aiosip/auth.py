@@ -1,5 +1,12 @@
+import logging
+
 from hashlib import md5
 from collections import MutableMapping
+
+from . import utils
+
+
+LOG = logging.getLogger(__name__)
 
 
 def md5digest(*args):
@@ -14,50 +21,51 @@ class Auth(MutableMapping):
         if self.mode != 'Digest':
             raise ValueError('Authentication method not supported')
 
-    def __str__(self):
+    def __str__(self, **kwargs):
+        if not kwargs:
+            kwargs = self._auth
+
         if self.mode == 'Digest':
             r = 'Digest '
             args = []
-            # import ipdb; ipdb.set_trace()
-            for k, v in self._auth.items():
+            for k, v in kwargs.items():
                 if k == 'algorithm':
                     args.append('%s=%s' % (k, v))
                 else:
                     args.append('%s="%s"' % (k, v))
-            r += ','.join(args)
+            r += ', '.join(args)
         else:
             raise ValueError('Authentication method not supported')
         return r
-
-    @classmethod
-    def from_authenticate_header(cls, authenticate, method, uri, username, password):
-        if authenticate.startswith('Digest'):
-            params = {
-                'username': username,
-                'uri': uri
-            }
-            params.update(cls.__parse_digest(authenticate))
-            auth = cls(mode='Digest', **params)
-            ha1 = md5digest(username, auth['realm'], password)
-            ha2 = md5digest(method, uri)
-            auth['response'] = md5digest(ha1, auth['nonce'], ha2)
-        else:
-            raise ValueError('Authentication method not supported')
-        return auth
 
     @classmethod
     def from_authorization_header(cls, authorization, method):
         if authorization.startswith('Digest'):
             params = {'method': method}
             params.update(cls.__parse_digest(authorization))
-
-            if 'response' not in params:
-                raise ValueError('No authentification response')
-
-            auth = cls(mode='Digest', **params)
+            auth = AuthorizationAuth(mode='Digest', **params)
         else:
             raise ValueError('Authentication method not supported')
         return auth
+
+    @classmethod
+    def from_authenticate_header(cls, authenticate, method):
+        if authenticate.startswith('Digest'):
+            params = {'method': method}
+            params.update(cls.__parse_digest(authenticate))
+            auth = AuthenticateAuth(mode='Digest', **params)
+        else:
+            raise ValueError('Authentication method not supported')
+        return auth
+
+    @classmethod
+    def from_message(cls, message):
+        if 'Authorization' in message.headers:
+            return cls.from_authorization_header(message.headers['Authorization'], message.method)
+        elif 'WWW-Authenticate' in message.headers:
+            return cls.from_authenticate_header(message.headers['WWW-Authenticate'], message.method)
+        else:
+            return None
 
     @classmethod
     def __parse_digest(cls, header):
@@ -69,24 +77,36 @@ class Auth(MutableMapping):
             params[k] = v
         return params
 
-    def validate(self, password, nonce=None, username=None, realm=None, uri=None):
+    def _calculate_response(self, password, payload, username=None, uri=None, cnonce=None, nonce_count=None):
+        if username is None:
+            username = self['username']
+        if uri is None:
+            uri = self['uri']
+        if cnonce is None:
+            cnonce = self.get('cnonce')
+        if nonce_count is None:
+            nonce_count = self.get('nc')
 
-        if not username:
-            username = self._auth['username']
-        if not realm:
-            realm = self._auth['realm']
-        if not uri:
-            uri = self._auth['uri']
-        if not nonce:
-            if 'server_nonce' not in self._auth:
-                return False
+        if self.mode == 'Digest':
+            algorithm = self.get('algorithm', 'md5')
+            if algorithm == 'md5-sess':
+                ha1 = md5digest(md5digest(username, self['realm'], password), self['nonce'], cnonce)
             else:
-                nonce = self._auth['server_nonce']
+                ha1 = md5digest(username, self['realm'], password)
 
-        ha1 = md5digest(username, realm, password)
-        ha2 = md5digest(self._auth['method'], uri)
-        rep = md5digest(ha1, nonce, ha2)
-        return self._auth['response'] == rep
+            qop = self.get('qop', '').lower()
+            if qop == 'auth-int':
+                ha2 = md5digest(self['method'], self['uri'], md5digest(payload))
+            else:
+                ha2 = md5digest(self['method'], uri)
+
+            if qop in ('auth', 'auth-int'):
+                response = md5digest(ha1, self['nonce'], nonce_count, cnonce, self['qop'], ha2)
+            else:
+                response = md5digest(ha1, self['nonce'], ha2)
+            return response
+        else:
+            raise ValueError('Authentication method not supported')
 
     # MutableMapping API
     def __eq__(self, other):
@@ -106,3 +126,65 @@ class Auth(MutableMapping):
 
     def __iter__(self):
         return iter(self._auth)
+
+
+class AuthenticateAuth(Auth):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def generate_authorization(self, username, password, uri, payload=''):
+        auth = AuthorizationAuth(mode=self.mode, uri=uri, username=username, response=None, **self)
+        auth['response'] = auth._calculate_response(
+            password=password,
+            payload=payload
+        )
+        return auth
+
+    def validate_authorization(self, authorization_auth, password, username, uri, payload=''):
+        response = self._calculate_response(
+                uri=uri,
+                payload=payload,
+                password=password,
+                username=username,
+                cnonce=authorization_auth.get('cnonce'),
+                nonce_count=authorization_auth.get('nc')
+            )
+
+        return response == authorization_auth['response']
+
+    def __str__(self):
+        kwargs = {k: v for k, v in self._auth.items() if k != 'method'}
+        return super().__str__(**kwargs)
+
+
+class AuthorizationAuth(Auth):
+
+    def __init__(self, *args, **kwargs):
+        self.nc = 0
+
+        if 'response' not in kwargs:
+            raise ValueError('No authentication response')
+
+        super().__init__(*args, **kwargs)
+
+    def _calculate_response(self, password, username=None, uri=None, payload='', cnonce=None, nonce_count=None):
+        if cnonce:
+            self.nc = nonce_count or self.nc + 1
+            self['nc'] = str(self.nc)
+            self['cnonce'] = cnonce
+        elif not cnonce and (
+            self.get('algorithm') == 'md5-sess' or
+            self.get('qop', '').lower() in ('auth', 'auth-int')
+        ):
+            self.nc = nonce_count or self.nc + 1
+            self['nc'] = str(self.nc)
+            self['cnonce'] = utils.gen_str(10)
+
+        return super()._calculate_response(
+            password=password,
+            username=username,
+            uri=uri,
+            payload=payload,
+            cnonce=self.get('cnonce'),
+            nonce_count=self.get('nc')
+        )
