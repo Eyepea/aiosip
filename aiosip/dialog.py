@@ -104,12 +104,13 @@ class DialogBase:
         )
         return msg
 
-    async def start(self, *, expires=None):
+    async def start(self, *, expires=None, timeout=None):
         # TODO: this is a hack
         headers = self.original_msg.headers
         if expires is not None:
             headers['Expires'] = expires
-        return await self.request(self.original_msg.method, headers=headers, payload=self.original_msg.payload)
+        return await self.request(self.original_msg.method, headers=headers, payload=self.original_msg.payload,
+                                  timeout=timeout)
 
     def ack(self, msg, headers=None, *args, **kwargs):
         headers = CIMultiDict(headers or {})

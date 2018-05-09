@@ -84,7 +84,7 @@ class Peer:
         return dialog
 
     async def request(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
-                      headers=None, cseq=0, payload=None, dialog_factory=Dialog, **kwargs):
+                      headers=None, cseq=0, payload=None, dialog_factory=Dialog, timeout=None, **kwargs):
 
         dialog = self._create_dialog(method=method,
                                      from_details=from_details,
@@ -98,7 +98,7 @@ class Peer:
                                      dialog_factory=dialog_factory,
                                      **kwargs)
         try:
-            response = await dialog.start()
+            response = await dialog.start(timeout=timeout)
             dialog.status_code = response.status_code
             dialog.status_message = response.status_message
             return dialog
