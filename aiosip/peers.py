@@ -184,26 +184,36 @@ class BaseConnector:
     async def create_server(self, local_addr, sock, **kwargs):
         return await self._create_server(local_addr, sock, **kwargs)
 
-    async def create_peer(self, peer_addr, local_addr=None, **kwargs):
+    async def create_peer(self, peer_addr, local_addr=None, reuse_peer=True, **kwargs):
+        peer = None
+
         try:
             peer_addr = ipaddress.ip_address(peer_addr[0]).exploded, peer_addr[1]
         except ValueError:
             dns = await self._app.dns.query(peer_addr[0], 'A')
             peer_addr = dns[0].host, peer_addr[1]
 
+        if reuse_peer:
+            peer = await self._find_peer(peer_addr, local_addr)
+
+        if peer is None:
+            LOG.debug('Creating: %s', peer)
+            peer = self._create_peer(peer_addr)
+            await self._connect_peer(peer, local_addr, **kwargs)
+        else:
+            await peer.connected
+
+        return peer
+
+    async def _find_peer(self, peer_addr, local_addr):
         try:
             if not local_addr:
                 peer = [peer for key, peer in self._peers.items() if key[0] == peer_addr][0]
             else:
                 peer = self._peers[(peer_addr, local_addr)]
+            return peer
         except (KeyError, IndexError):
-            peer = self._create_peer(peer_addr)
-            await self._connect_peer(peer, local_addr, **kwargs)
-            LOG.debug('Creating: %s', peer)
-            return peer
-        else:
-            await peer.connected
-            return peer
+            return
 
     def _create_peer(self, peer_addr):
         peer = Peer(peer_addr, self._app, loop=self._loop)
