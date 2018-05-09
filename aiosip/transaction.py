@@ -58,34 +58,28 @@ class BaseTransaction:
         )))
 
     def _handle_authenticate(self, msg):
-        if self.authentification is not None:
-            return
-
         if self.dialog.password is None:
             raise ValueError('Password required for authentication')
 
+        self.attempts -= 1
+        if self.attempts < 1:
+            self._error(AuthentificationFailed('Too many unauthorized attempts!'))
+            return
+        elif self.authentification:
+            self.authentification.cancel()
+            self.authentification = None
+
         if msg.method.upper() == 'REGISTER':
-            self.attempts -= 1
-            if self.attempts < 1:
-                self._error(AuthentificationFailed('Too many unauthorized attempts!'))
-                return
             username = msg.to_details['uri']['user']
-        elif msg.method.upper() == 'INVITE':
-            self.attempts -= 1
-            if self.attempts < 1:
-                self._error(AuthentificationFailed('Too many unauthorized attempts!'))
-                return
-            username = msg.from_details['uri']['user']
         else:
             username = msg.from_details['uri']['user']
 
         self.original_msg.cseq += 1
-        self.original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
-            authenticate=msg.headers['WWW-Authenticate'],
-            method=msg.method,
-            uri=msg.to_details['uri'].short_uri(),
+        self.original_msg.headers['Authorization'] = msg.auth.generate_authorization(
             username=username,
-            password=self.dialog.password)
+            password=self.dialog.password,
+            payload=msg.payload,
+            uri=msg.to_details['uri'].short_uri()
         )
 
         self.dialog.transactions[self.original_msg.method][self.original_msg.cseq] = self
@@ -126,7 +120,7 @@ class FutureTransaction(BaseTransaction):
         super()._incoming(msg)
         if msg.method == 'ACK':
             self._result(msg)
-        elif msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
+        elif msg.status_code == 401 and msg.auth:
             self._handle_authenticate(msg)
             return
         elif msg.status_code == 407:  # Proxy authentication
@@ -141,6 +135,9 @@ class FutureTransaction(BaseTransaction):
             self._result(msg)
 
     def _error(self, error):
+        if self.authentification:
+            self.authentification.cancel()
+            self.authentification = None
         self._future.set_exception(error)
         self.dialog.end_transaction(self)
 

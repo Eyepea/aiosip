@@ -71,12 +71,12 @@ async def test_authentication(test_server, protocol, loop, from_details, to_deta
             dialog = request._create_dialog()
 
             received_messages.append(message)
-            assert not dialog.validate_auth(message, password)
+            assert not dialog.validate_auth(message=message, password=password)
             await dialog.unauthorized(message)
 
             async for message in dialog:
                 received_messages.append(message)
-                if dialog.validate_auth(message, password):
+                if dialog.validate_auth(message=message, password=password):
                     await dialog.reply(message, 200)
                 else:
                     await dialog.unauthorized(message)
@@ -125,7 +125,7 @@ async def test_authentication_rejection(test_server, protocol, loop, from_detail
 
             async for message in dialog:
                 received_messages.append(message)
-                await dialog.reply(message, 401)
+                await dialog.unauthorized(message)
 
     app = aiosip.Application(loop=loop)
     server_app = aiosip.Application(loop=loop, dialplan=Dialplan())
@@ -138,18 +138,16 @@ async def test_authentication_rejection(test_server, protocol, loop, from_detail
             server.sip_config['server_port'],
         )
     )
+    with pytest.raises(aiosip.exceptions.AuthentificationFailed):
+        await peer.register(
+            expires=1800,
+            from_details=aiosip.Contact.from_header(from_details),
+            to_details=aiosip.Contact.from_header(to_details),
+            password='testing_pass',
+        )
 
-    result = await peer.register(
-        expires=1800,
-        from_details=aiosip.Contact.from_header(from_details),
-        to_details=aiosip.Contact.from_header(to_details),
-        password='testing_pass',
-    )
-
-    # wait long enough to ensure no improper retransmit
-    await asyncio.sleep(1)
-    assert len(received_messages) == 2
-    assert result.status_code == 401
+    assert len(received_messages) == 3
+    assert all(list('Authorization' in message.headers for message in received_messages[1:]))
 
     if close_order[0] == 'client':
         await app.close()

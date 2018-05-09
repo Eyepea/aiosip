@@ -7,6 +7,7 @@ import websockets
 from multidict import CIMultiDict
 
 from . import utils
+from . import exceptions
 from .contact import Contact
 from .protocol import UDP, TCP, WS
 from .dialog import Dialog, InviteDialog
@@ -97,6 +98,7 @@ class Peer:
                                      cseq=cseq,
                                      dialog_factory=dialog_factory,
                                      **kwargs)
+
         try:
             response = await dialog.start(timeout=timeout)
             dialog.status_code = response.status_code
@@ -104,6 +106,9 @@ class Peer:
             return dialog
         except asyncio.CancelledError:
             dialog.cancel()
+            raise
+        except exceptions.AuthentificationFailed:
+            await dialog.close(fast=True)
             raise
 
     async def subscribe(self, expires=3600, **kwargs):

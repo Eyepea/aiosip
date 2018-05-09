@@ -7,7 +7,7 @@ from collections import defaultdict
 from async_timeout import timeout as Timeout
 
 from . import utils
-from .auth import Auth
+from .auth import AuthenticateAuth, AuthorizationAuth
 from .message import Request, Response
 from .transaction import UnreliableTransaction
 
@@ -48,6 +48,7 @@ class DialogBase:
         self.cseq = cseq
         self.inbound = inbound
         self.transactions = defaultdict(dict)
+        self.auth = None
 
         # TODO: Needs to be last because we need the above attributes set
         self.original_msg = self._prepare_request(method, headers=headers, payload=payload)
@@ -119,17 +120,30 @@ class DialogBase:
         ack = self._prepare_request('ACK', cseq=msg.cseq, to_details=msg.to_details, headers=headers, *args, **kwargs)
         self.peer.send_message(ack)
 
-    async def unauthorized(self, msg):
-        self._nonce = utils.gen_str(10)
+    async def unauthorized(self, msg, realm='sip', algorithm='md5', **kwargs):
+        if 'Authorization' not in msg.headers or self.auth is None:
+            self.auth = AuthenticateAuth(
+                nonce=utils.gen_str(10),
+                realm=realm,
+                method=msg.method,
+                algorithm=algorithm,
+                **kwargs
+            )
+
         headers = CIMultiDict()
-        headers['WWW-Authenticate'] = str(Auth(nonce=self._nonce, algorithm='md5', realm='sip'))
+        headers['WWW-Authenticate'] = str(self.auth)
         await self.reply(msg, status_code=401, headers=headers)
 
-    def validate_auth(self, msg, password):
-        if msg.auth and msg.auth.validate(password, self._nonce):
-            self._nonce = None
+    def validate_auth(self, message, password):
+        if isinstance(message.auth, AuthorizationAuth) and self.auth.validate_authorization(
+            message.auth,
+            password=password,
+            username=message.auth['username'],
+            uri=message.auth['uri'],
+            payload=message.payload
+        ):
             return True
-        elif msg.method == 'CANCEL':
+        elif message.method == 'CANCEL':
             return True
         else:
             return False
@@ -288,11 +302,11 @@ class Dialog(DialogBase):
             headers['Expires'] = int(expires)
         return await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
 
-    async def close(self, headers=None, *args, **kwargs):
+    async def close(self, headers=None, fast=False, *args, **kwargs):
         if not self._closed:
             self._closed = True
             result = None
-            if not self.inbound and self.original_msg.method in ('REGISTER', 'SUBSCRIBE'):
+            if not fast and not self.inbound and self.original_msg.method in ('REGISTER', 'SUBSCRIBE'):
                 headers = CIMultiDict(headers or {})
                 if 'Expires' not in headers:
                     headers['Expires'] = 0

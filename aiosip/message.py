@@ -59,6 +59,12 @@ class Message:
                 ';branch=%s' % utils.gen_branch(10)
 
     @property
+    def auth(self):
+        if not hasattr(self, '_auth'):
+            self._auth = Auth.from_message(self)
+        return self._auth
+
+    @property
     def payload(self):
         if self._payload:
             return self._payload
@@ -263,15 +269,6 @@ class Request(Message):
             )
         else:
             self._first_line = first_line
-
-    @property
-    def auth(self):
-        if not hasattr(self, '_auth'):
-            if 'Authorization' in self.headers:
-                self._auth = Auth.from_authorization_header(self.headers['Authorization'], self._method)
-            else:
-                self._auth = None
-        return self._auth
 
     @property
     def to_details(self):
