@@ -127,6 +127,11 @@ class Application(MutableMapping):
 
                 return dialog
 
+            async def unauthorized(self, message):
+                dialog = self._create_dialog()
+                await dialog.unauthorized(message)
+                return dialog
+
         request = Request()
         await route(request, msg)
 
