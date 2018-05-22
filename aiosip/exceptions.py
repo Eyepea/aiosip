@@ -21,3 +21,19 @@ class InviteFailed(AiosipException):
 
 class InviteOngoing(AiosipException):
     pass
+
+
+class SIPError(Exception):
+    pass
+
+
+class SIPNotFound(SIPError):
+    status_code = 404
+
+
+class SIPMethodNotAllowed(SIPError):
+    status_code = 405
+
+
+class SIPTransactionDoesNotExist(SIPError):
+    status_code = 481

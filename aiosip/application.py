@@ -130,33 +130,64 @@ class Application(MutableMapping):
         request = Request()
         await route(request, msg)
 
-    async def _dispatch(self, protocol, msg, addr):
-        call_id = msg.headers['Call-ID']
-        dialog = None
+    async def _dispatch(self, protocol, message, addr):
+        if isinstance(message, Request):
+            try:
+                self._received_request(protocol, message)
+            except SIPError as err:
+                self.send(status_code=err.status_code)
 
-        # First incoming request of dialogs do not yet have a tag in to headers
-        if 'tag' in msg.to_details['params']:
-            dialog = self._dialogs.get(frozenset((msg.to_details['params']['tag'],
-                                                  msg.from_details['params']['tag'],
-                                                  call_id)))
+        elif isinstance(message, Response):
+            self._received_response(message)
 
-        # First response of dialogs have a tag in the to header but the dialog is not
-        # yet aware of it. Try to match only with the from header tag
-        if dialog is None:
-            dialog = self._dialogs.get(frozenset((None, msg.from_details['params']['tag'], call_id)))
+    async def _received_request(self, protocol, message):
+        branch = message.headers['Via'].branch
+        transaction = self.transactions.get((branch, message.method))
+        if transaction:
+            await transaction.received_request(message)
 
-        if dialog is not None:
-            await dialog.receive_message(msg)
-            return
+        # If we got a CANCEL, look for a matching INVITE
+        elif message.method == 'CANCEL':
+            transaction = self.transactions.get((branch, 'INVITE'))
+            if not transaction:
+                raise SIPTransactionDoesNotExist(
+                    "Original transaction does not exist")
 
-        # If we got an ACK, but nowhere to deliver it, drop it. If we
-        # got a response without an associated message (likely a stale
-        # retransmission, drop it)
-        if isinstance(msg, Response) or msg.method == 'ACK':
-            LOG.debug('Discarding incoming message: %s', msg)
-            return
+            await transaction.received_request(message)
 
-        await self._run_dialplan(protocol, msg)
+        # Handle in-dialog requests
+        elif 'tag' in message.headers['To']:
+            dialog = self.find_dialog(message)
+            if dialog:
+                pass
+            elif message.method == 'ACK':
+                transaction = self.transactions((branch, 'INVITE'))
+                if transaction:
+                    transaction.received_request(message)
+            else:
+                raise SIPTransactionDoesNotExist("Dialog does not exist")
+
+        # Handle out-of-dialog requests
+        else:
+            result = self._run_dialplan(protocol, message)
+            if result:
+                # TODO: implement
+                pass
+
+            # If OPTIONS was unhandled, use a default implementation
+            elif message.method == 'OPTIONS':
+                # TODO: fix
+                raise SIPMethodNotAllowed("Method not allowed")
+
+            elif message.method != 'ACK':
+                raise SIPMethodNotAllowed("Method not allowed")
+
+
+    async def _received_response(self, message):
+        branch = message.headers['Via'].branch
+        transaction = self.transactions.get((branch, message.method))
+        if transaction:
+            await transaction.received_response(message)
 
     async def _run_dialplan(self, protocol, msg):
         call_id = msg.headers['Call-ID']
