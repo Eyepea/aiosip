@@ -2,6 +2,7 @@ import asyncio
 from contextlib import suppress
 import enum
 import logging
+import sys
 
 import async_timeout
 
@@ -10,14 +11,26 @@ from .exceptions import AuthentificationFailed
 
 LOG = logging.getLogger(__name__)
 
+PY_37 = sys.version_info >= (3, 7)
 
 T1 = 0.5
 TIMER_A = T1
 TIMER_B = T1 * 64
+TIMER_D = 32  # not based on T1
+
+
+def current_task(loop: asyncio.AbstractEventLoop) -> asyncio.Task:
+    if PY_37:
+        return asyncio.current_task(loop=loop)  # type: ignore
+    else:
+        return asyncio.Task.current_task(loop=loop)
 
 
 class State(enum.Enum):
-    Terminating = 'terminating'
+    Calling = 'calling'
+    Proceeding = 'Proceeding'
+    Completed = 'Completed'
+    Terminated = 'Terminated'
 
 
 class Transaction:
@@ -69,11 +82,15 @@ class Transaction:
 
 
 class InviteClientTransaction(Transaction):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.queue = asyncio.Queue()
+
     async def start(self):
         self.transport.send(self.request, self.remote)
         self.state = State.Calling
 
-        def start_transaction():
+        async def start_transaction():
             timeout = TIMER_A
             with async_timeout.timeout(TIMER_B):
                 while self.state == State.Calling:
@@ -84,15 +101,35 @@ class InviteClientTransaction(Transaction):
         self.task = asyncio.ensure_future(start_transaction())
 
     async def received_response(self, response):
-        if 100 <= response.status_code < 200:
+        if (100 <= response.status_code < 200
+                and self.state in (State.Calling, State.Proceeding)):
             self.state = State.Proceeding
+            await self.queue.put(response)
 
-        elif response.status_code == 200:
+        elif (response.status_code == 200
+              and self.state in (State.Calling, State.Proceeding)):
             self.state = State.Terminated
+            self.ack()
+            await self.queue.put(response)
 
-        elif 300 <= response.status_code < 700:
+        elif self.state in (State.Calling, State.Proceeding):
             self.state = State.Completed
+            self.ack()
 
+            async def _timer_d():
+                await asyncio.wait(TIMER_D)
+                self.state = State.Terminated
+
+            asyncio.ensure_future(_timer_d())
+
+    def ack(self):
+        pass
+
+    async def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await self.queue.wait()
 
 
 class ClientTransaction(Transaction):
