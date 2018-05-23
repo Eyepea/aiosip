@@ -198,9 +198,19 @@ class Application(MutableMapping):
         # for middleware_factory in reversed(self._middleware):
         #     route = await middleware_factory(route)
 
+        class Request:
+            def __init__(self, transaction):
+                self.transaction = transaction
+
+            def accept(self, *args, **kwargs):
+                pass
+
+            def reject(self, *, status_code):
+                pass
+
         from .transaction import start_server_transaction
-        request = await start_server_transaction(msg, peer)
-        await route(request)
+        transaction = await start_server_transaction(msg, peer)
+        await route(Request(transaction))
 
     def _connection_lost(self, protocol):
         connector = self._connectors[type(protocol)]
