@@ -27,7 +27,6 @@ LOG = logging.getLogger(__name__)
 DEFAULTS = {
     'user_agent': 'Python/{0[0]}.{0[1]}.{0[2]} aiosip/{1}'.format(sys.version_info, __version__),
     'override_contact_host': None,
-    'dialog_closing_delay': 30
 }
 
 
@@ -45,17 +44,17 @@ class Application(MutableMapping):
         if loop is None:
             loop = asyncio.get_event_loop()
 
-        self.debug = debug
-        self.dns = dns_resolver
-        self._finish_callbacks = []
         self._state = {}
         self._dialogs = {}
+        self._transactions = {}
         self._connectors = {UDP: UDPConnector(self, loop=loop),
                             TCP: TCPConnector(self, loop=loop),
                             WS: WSConnector(self, loop=loop)}
         self._middleware = middleware
         self._tasks = list()
 
+        self.debug = debug
+        self.dns = dns_resolver
         self.dialplan = dialplan
         self.loop = loop
 
@@ -74,7 +73,6 @@ class Application(MutableMapping):
         return peer
 
     async def run(self, *, local_addr=None, protocol=UDP, sock=None, **kwargs):
-
         if not local_addr and not sock:
             raise ValueError('One of "local_addr", "sock" is mandatory')
         elif local_addr and sock:
@@ -85,45 +83,6 @@ class Application(MutableMapping):
         connector = self._connectors[protocol]
         server = await connector.create_server(local_addr, sock, **kwargs)
         return server
-
-    async def _call_route(self, peer, route, msg):
-        for middleware_factory in reversed(self._middleware):
-            route = await middleware_factory(route)
-
-        app = self
-        call_id = msg.headers['Call-ID']
-
-        # TODO: refactor
-        class Request:
-            def __init__(self):
-                self.app = app
-                self.dialog = None
-
-            def _create_dialog(self, dialog_factory=Dialog, **kwargs):
-                if not self.dialog:
-                    self.dialog = peer._create_dialog(
-                        method=msg.method,
-                        from_details=Contact.from_header(msg.headers['To']),
-                        to_details=Contact.from_header(msg.headers['From']),
-                        call_id=call_id,
-                        inbound=True,
-                        dialog_factory=dialog_factory,
-                        **kwargs
-                    )
-                return self.dialog
-
-            async def prepare(self, status_code, *args, **kwargs):
-                dialog = self._create_dialog()
-
-                await dialog.reply(msg, status_code, *args, **kwargs)
-                if status_code >= 300:
-                    await dialog.close()
-                    return None
-
-                return dialog
-
-        request = Request()
-        await route(request, msg)
 
     async def _dispatch(self, protocol, message, addr):
         if isinstance(message, Request):
@@ -137,13 +96,13 @@ class Application(MutableMapping):
 
     async def _received_request(self, protocol, message):
         branch = message.headers['Via'].branch
-        transaction = self.transactions.get((branch, message.method))
+        transaction = self._transactions.get((branch, message.method))
         if transaction:
             await transaction.received_request(message)
 
         # If we got a CANCEL, look for a matching INVITE
         elif message.method == 'CANCEL':
-            transaction = self.transactions.get((branch, 'INVITE'))
+            transaction = self._transactions.get((branch, 'INVITE'))
             if not transaction:
                 raise SIPTransactionDoesNotExist(
                     "Original transaction does not exist")
@@ -156,7 +115,7 @@ class Application(MutableMapping):
             if dialog:
                 pass
             elif message.method == 'ACK':
-                transaction = self.transactions((branch, 'INVITE'))
+                transaction = self._transactions((branch, 'INVITE'))
                 if transaction:
                     transaction.received_request(message)
             else:
@@ -180,7 +139,7 @@ class Application(MutableMapping):
 
     async def _received_response(self, message):
         branch = message.headers['Via'].branch
-        transaction = self.transactions.get((branch, message.method))
+        transaction = self._transactions.get((branch, message.method))
         if transaction:
             await transaction.received_response(message)
 
@@ -235,32 +194,17 @@ class Application(MutableMapping):
                     payload = traceback.format_exc()
             await reply(msg, status_code=500, payload=payload)
 
+    async def _call_route(self, peer, route, msg):
+        # for middleware_factory in reversed(self._middleware):
+        #     route = await middleware_factory(route)
+
+        from .transaction import start_server_transaction
+        request = await start_server_transaction(msg, peer)
+        await route(request)
+
     def _connection_lost(self, protocol):
         connector = self._connectors[type(protocol)]
         connector.connection_lost(protocol)
-        # for task in self._tasks:
-        #     task.cancel()
-
-    @asyncio.coroutine
-    def finish(self):
-        callbacks = self._finish_callbacks
-        self._finish_callbacks = []
-
-        for (cb, args, kwargs) in callbacks:
-            try:
-                res = cb(self, *args, **kwargs)
-                if (asyncio.iscoroutine(res) or
-                        isinstance(res, asyncio.Future)):
-                    yield from res
-            except Exception as exc:
-                self.loop.call_exception_handler({
-                    'message': "Error in finish callback",
-                    'exception': exc,
-                    'application': self,
-                })
-
-    def register_on_finish(self, func, *args, **kwargs):
-        self._finish_callbacks.insert(0, (func, args, kwargs))
 
     async def close(self, timeout=5):
         for dialog in set(self._dialogs.values()):
@@ -272,9 +216,6 @@ class Application(MutableMapping):
             await connector.close()
         for task in self._tasks:
             task.cancel()
-
-    # def __repr__(self):
-    #     return "<Application>"
 
     # MutableMapping API
     def __eq__(self, other):

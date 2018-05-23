@@ -225,3 +225,10 @@ async def start_client_transaction(stack, app, request, transport, remote):
     transaction = cls(stack, app, request, transport, remote)
     await transaction.start()
     return transaction
+
+
+async def start_server_transaction(message, peer):
+    cls = InviteServerTransaction if message.method == 'INVITE' else ServerTransaction
+    transaction = cls(message, peer)
+    await transaction.start()
+    return transaction
