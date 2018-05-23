@@ -45,11 +45,6 @@ class Application(MutableMapping):
         if loop is None:
             loop = asyncio.get_event_loop()
 
-        if defaults:
-            self.defaults = {**DEFAULTS, **defaults}
-        else:
-            self.defaults = DEFAULTS
-
         self.debug = debug
         self.dns = dns_resolver
         self._finish_callbacks = []
