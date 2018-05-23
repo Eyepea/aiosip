@@ -14,9 +14,12 @@ LOG = logging.getLogger(__name__)
 PY_37 = sys.version_info >= (3, 7)
 
 T1 = 0.5
+T2 = 4
 TIMER_A = T1
 TIMER_B = T1 * 64
 TIMER_D = 32  # not based on T1
+TIMER_E = T1
+TIMER_F = T1 * 64
 
 
 def current_task(loop: asyncio.AbstractEventLoop) -> asyncio.Task:
@@ -132,9 +135,56 @@ class InviteClientTransaction(Transaction):
         await self.queue.wait()
 
 
-class ClientTransaction(Transaction):
+class InviteServerTransaction(Transaction):
     async def start(self):
-        pass
+        self.state = State.Proceeding
+        self.send_response(100, "Trying")
+        # ... notify the user application
+
+    def receive_request(self, request):
+        # TODO: store the full original request
+        if request.method == self.request.method:
+            if self.state in (State.Proceeding, State.Completed):
+                # retransmit last response
+                pass
+        elif request.method == 'ACK':
+            if self.state == State.Completed:
+                # self.state = State.Confirmed
+                # Start task with TIMER_I to then flip to State.Terminated
+                pass
+            elif self.state == State.Confirmed:
+                # Ignore ACKs
+                pass
+
+    def send(self, response):
+        if (100 <= response.status_code < 200
+                and self.state == State.Proceeding):
+            pass  # TODO: send
+
+        elif (response.status_code == 200 and self.state in State.Proceeding):
+            self.state = State.Terminated
+            pass  # TODO: send
+
+        else:
+            self.state = State.Completed
+            # Failure. TODO: log
+            # Start TIMER_G, abandon retransmissions
+
+
+class ClientTransaction(Transaction):
+    def start(self):
+        self.transport.send(self.request, self.remote)
+        self.state = State.Calling
+
+        async def start_transaction():
+            timeout = TIMER_E
+            with async_timeout.timeout(TIMER_F):
+                while self.state == State.Calling:
+                    await self.transport.send(self.request, self.remote)
+                    await asyncio.sleep(timeout)
+                    timeout = min(timeout * 2, T2)
+
+        self.task = asyncio.ensure_future(start_transaction())
 
 
 async def start_client_transaction(stack, app, request, transport, remote):
