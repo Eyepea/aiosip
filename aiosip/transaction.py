@@ -174,7 +174,7 @@ class InviteServerTransaction(Transaction):
 class ClientTransaction(Transaction):
     def start(self):
         self.transport.send(self.request, self.remote)
-        self.state = State.Calling
+        self.state = State.Trying
 
         async def start_transaction():
             timeout = TIMER_E
@@ -185,6 +185,39 @@ class ClientTransaction(Transaction):
                     timeout = min(timeout * 2, T2)
 
         self.task = asyncio.ensure_future(start_transaction())
+
+    def received_response(self, response):
+        if (100 <= response.status_code < 200
+                and self.state in (State.Trying, State.Proceeding)):
+            self.state = State.Proceeding
+             # ... report
+        else:
+            self.state = State.Completed
+             # ... report
+
+
+class ServerTransaction(Transaction):
+    def start(self):
+        self.state = State.Trying
+
+    def received_request(self, request):
+        # Likely catching retransmissions
+        if self.method == self.request.method:
+            if self.state in (State.Proceeding, State.Completed):
+                # TODO: retransmit last response
+                pass
+            elif self.state == State.Trying:
+                # ignore
+                pass
+
+    def send_response(self, response):
+        if (100 <= response.status_code < 200
+                and self.state in (State.Trying, State.Proceeding)):
+            self.state = State.Proceeding
+            # send ...
+        else:
+            self.state = State.Completed
+            # send ...
 
 
 async def start_client_transaction(stack, app, request, transport, remote):
