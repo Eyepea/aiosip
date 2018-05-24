@@ -29,7 +29,9 @@ def current_task(loop: asyncio.AbstractEventLoop) -> asyncio.Task:
         return asyncio.Task.current_task(loop=loop)
 
 
+# TODO: split invite from other transactions
 class State(enum.Enum):
+    Trying = 'Trying'
     Calling = 'Calling'
     Proceeding = 'Proceeding'
     Completed = 'Completed'
@@ -42,12 +44,12 @@ def new_branch():
 
 
 class Transaction:
-    def __init__(self, message, *, loop=None):
+    def __init__(self, message, peer, *, loop=None):
         self.message = message
+        self.peer = peer
 
         self.branch = new_branch()  # TODO: might need to get it from the message, might need to make a new one
         self.app = None
-        self.transport = None
         self.remote = None
         self.tag = None
 
@@ -64,7 +66,7 @@ class Transaction:
     @state.setter
     def state(self, value):
         self._state = value
-        if self._status == State.Terminating:
+        if self._state == State.Terminated:
             self.close()
 
     @property
@@ -85,14 +87,14 @@ class InviteClientTransaction(Transaction):
         self.queue = asyncio.Queue()
 
     async def start(self):
-        self.transport.send(self.message, self.remote)
+        self.peer.send_message(self.message)
         self.state = State.Calling
 
         async def start_transaction():
             timeout = TIMER_A
             with async_timeout.timeout(TIMER_B):
                 while self.state == State.Calling:
-                    await self.transport.send(self.message, self.remote)
+                    await self.peer.send_message(self.message)
                     await asyncio.sleep(timeout)
                     timeout *= 2
 
@@ -167,15 +169,15 @@ class InviteServerTransaction(Transaction):
 
 
 class ClientTransaction(Transaction):
-    def start(self):
-        self.transport.send(self.message, self.remote)
+    async def start(self):
+        self.peer.send_message(self.message)
         self.state = State.Trying
 
         async def start_transaction():
             timeout = TIMER_E
             with async_timeout.timeout(TIMER_F):
                 while self.state == State.Calling:
-                    await self.transport.send(self.message, self.remote)
+                    self.peer.send_message(self.message)
                     await asyncio.sleep(timeout)
                     timeout = min(timeout * 2, T2)
 
@@ -192,7 +194,7 @@ class ClientTransaction(Transaction):
 
 
 class ServerTransaction(Transaction):
-    def start(self):
+    async def start(self):
         self.state = State.Trying
 
     def received_request(self, request):
@@ -215,15 +217,15 @@ class ServerTransaction(Transaction):
             # send ...
 
 
-async def start_client_transaction(message):
+async def start_client_transaction(message, peer):
     cls = InviteClientTransaction if message.method == 'INVITE' else ClientTransaction
-    transaction = cls(message)
+    transaction = cls(message, peer)
     await transaction.start()
     return transaction
 
 
-async def start_server_transaction(message):
+async def start_server_transaction(message, peer):
     cls = InviteServerTransaction if message.method == 'INVITE' else ServerTransaction
-    transaction = cls(message)
+    transaction = cls(message, peer)
     await transaction.start()
     return transaction

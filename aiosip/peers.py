@@ -106,7 +106,7 @@ class Peer:
                 })
 
         message = Request(method, 20, from_details, to_details, contact_details, headers, payload)
-        return await start_client_transaction(message)
+        return await start_client_transaction(message, self)
 
     async def subscribe(self, expires=3600, **kwargs):
         headers = kwargs.get('headers')
