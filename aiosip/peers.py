@@ -85,33 +85,33 @@ class Peer:
 
     async def request(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
                       headers=None, cseq=0, payload=None, dialog_factory=Dialog, timeout=None, **kwargs):
+        from .message import Request
+        from .transaction import start_client_transaction
 
-        dialog = self._create_dialog(method=method,
-                                     from_details=from_details,
-                                     to_details=to_details,
-                                     contact_details=contact_details,
-                                     headers=headers,
-                                     payload=payload,
-                                     password=password,
-                                     call_id=call_id,
-                                     cseq=cseq,
-                                     dialog_factory=dialog_factory,
-                                     **kwargs)
-        try:
-            response = await dialog.start(timeout=timeout)
-            dialog.status_code = response.status_code
-            dialog.status_message = response.status_message
-            return dialog
-        except asyncio.CancelledError:
-            dialog.cancel()
-            raise
+        if not contact_details:
+            host, port = self.local_addr
+
+            if self._app.defaults['override_contact_host']:
+                host = self._app.defaults['override_contact_host']
+            elif host == '0.0.0.0' or host.startswith('127.'):
+                host = from_details['uri']['host']
+
+            contact_details = Contact(
+                {
+                    'uri': 'sip:{username}@{host_and_port};transport={protocol}'.format(
+                        username=from_details['uri']['user'],
+                        host_and_port=utils.format_host_and_port(host, port),
+                        protocol=type(self._protocol).__name__.lower()
+                    )
+                })
+
+        message = Request(method, 20, from_details, to_details, contact_details, headers, payload)
+        return await start_client_transaction(message)
 
     async def subscribe(self, expires=3600, **kwargs):
-
-        if expires:
-            headers = kwargs.get('headers', CIMultiDict())
-            headers['Expires'] = expires
-            kwargs['headers'] = headers
+        headers = kwargs.get('headers')
+        if headers:
+            headers['Expires'] = str(expires)
 
         return await self.request('SUBSCRIBE', **kwargs)
 

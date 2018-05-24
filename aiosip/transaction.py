@@ -42,29 +42,16 @@ def new_branch():
 
 
 class Transaction:
-    def __init__(self, dialog, original_msg=None, attempts=3, *, loop=None):
-        self.branch = new_branch()
-        self.stack = None
+    def __init__(self, message, *, loop=None):
+        self.message = message
+
+        self.branch = new_branch()  # TODO: might need to get it from the message, might need to make a new one
         self.app = None
-        self.message = None
         self.transport = None
         self.remote = None
         self.tag = None
 
         self._state = None
-
-        self.server = ...
-        # self.timers = {}
-        # self.timer = Timer()
-
-        # self.dialog = dialog
-        # self.original_msg = original_msg
-        # self.loop = loop or asyncio.get_event_loop()
-        # self.attempts = attempts
-        # self.retransmission = None
-        # self.authentification = None
-        # self._running = True
-        # LOG.debug('Creating: %s', self)
 
     @property
     def key(self):
@@ -228,15 +215,15 @@ class ServerTransaction(Transaction):
             # send ...
 
 
-async def start_client_transaction(stack, app, request, transport, remote):
-    cls = InviteClientTransaction if request.method == 'INVITE' else ClientTransaction
-    transaction = cls(stack, app, request, transport, remote)
+async def start_client_transaction(message):
+    cls = InviteClientTransaction if message.method == 'INVITE' else ClientTransaction
+    transaction = cls(message)
     await transaction.start()
     return transaction
 
 
-async def start_server_transaction(message, peer):
+async def start_server_transaction(message):
     cls = InviteServerTransaction if message.method == 'INVITE' else ServerTransaction
-    transaction = cls(message, peer)
+    transaction = cls(message)
     await transaction.start()
     return transaction
