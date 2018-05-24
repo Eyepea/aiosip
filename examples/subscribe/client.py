@@ -6,25 +6,17 @@ import random
 
 import aiosip
 
-sip_config = {
-    'srv_host': '127.0.0.1',
-    'srv_port': 6000,
-    'realm': 'XXXXXX',
-    'user': 'subscriber',
-    'pwd': 'hunter2',
-    'local_host': '127.0.0.1',
-    'local_port': random.randint(6001, 6100)
-}
+REMOTE_ADDR = ('127.0.0.1', 5060)
+LOCAL_ADDR = ('127.0.0.1', 5080)
+USER = 'subscriber'
 
 
 async def run_subscription(peer, duration):
     subscription = await peer.subscribe(
         from_details=aiosip.Contact.from_header('sip:{}@{}:{}'.format(
-            sip_config['user'], sip_config['local_host'],
-            sip_config['local_port'])),
+            USER, *LOCAL_ADDR)),
         to_details=aiosip.Contact.from_header('sip:666@{}:{}'.format(
-            sip_config['srv_host'], sip_config['srv_port'])),
-        password=sip_config['pwd'])
+            *REMOTE_ADDR)))
 
     async def reader():
         async for request in subscription:
@@ -40,14 +32,12 @@ async def run_subscription(peer, duration):
 async def start(app, protocol, duration):
     if protocol is aiosip.WS:
         peer = await app.connect(
-            'ws://{}:{}'.format(sip_config['srv_host'], sip_config['srv_port']),
+            'ws://{}:{}'.format(*REMOTE_ADDR),
             protocol=protocol,
-            local_addr=(sip_config['local_host'], sip_config['local_port']))
+            local_addr=LOCAL_ADDR)
     else:
         peer = await app.connect(
-            (sip_config['srv_host'], sip_config['srv_port']),
-            protocol=protocol,
-            local_addr=(sip_config['local_host'], sip_config['local_port']))
+            REMOTE_ADDR, protocol=protocol, local_addr=LOCAL_ADDR)
 
     await run_subscription(peer, duration)
     await app.close()
