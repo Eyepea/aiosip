@@ -9,7 +9,7 @@ from async_timeout import timeout as Timeout
 from . import utils
 from .auth import Auth
 from .message import Request, Response
-from .transaction import UnreliableTransaction
+from .transaction import ClientTransaction
 
 
 LOG = logging.getLogger(__name__)
@@ -178,7 +178,7 @@ class DialogBase:
                 transaction._error(ConnectionError)
 
     async def start_unreliable_transaction(self, msg, method=None):
-        transaction = UnreliableTransaction(self, original_msg=msg, loop=self.app.loop)
+        transaction = ClientTransaction(self, original_msg=msg, loop=self.app.loop)
         self.transactions[method or msg.method][msg.cseq] = transaction
         return await transaction.start()
 

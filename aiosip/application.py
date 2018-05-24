@@ -44,6 +44,8 @@ class Application(MutableMapping):
         if loop is None:
             loop = asyncio.get_event_loop()
 
+        self.defaults = defaults or DEFAULTS
+
         self._state = {}
         self._dialogs = {}
         self._transactions = {}

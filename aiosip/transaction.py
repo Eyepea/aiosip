@@ -30,19 +30,23 @@ def current_task(loop: asyncio.AbstractEventLoop) -> asyncio.Task:
 
 
 class State(enum.Enum):
-    Calling = 'calling'
+    Calling = 'Calling'
     Proceeding = 'Proceeding'
     Completed = 'Completed'
     Terminated = 'Terminated'
 
 
+def new_branch():
+    import secrets
+    return ''.join(('z9hG4bK', secrets.token_urlsafe(6)))
+
+
 class Transaction:
     def __init__(self, dialog, original_msg=None, attempts=3, *, loop=None):
-        self.branch = None
-        self.id = None
+        self.branch = new_branch()
         self.stack = None
         self.app = None
-        self.request = None
+        self.message = None
         self.transport = None
         self.remote = None
         self.tag = None
@@ -50,8 +54,8 @@ class Transaction:
         self._state = None
 
         self.server = ...
-        self.timers = {}
-        self.timer = Timer()
+        # self.timers = {}
+        # self.timer = Timer()
 
         # self.dialog = dialog
         # self.original_msg = original_msg
@@ -61,6 +65,10 @@ class Transaction:
         # self.authentification = None
         # self._running = True
         # LOG.debug('Creating: %s', self)
+
+    @property
+    def key(self):
+        return self.message, self.branch
 
     @property
     def state(self):
@@ -74,7 +82,7 @@ class Transaction:
 
     @property
     def headers(self):
-        return set(self.request.headers[header]
+        return set(self.message.headers[header]
                    for header in ('To', 'From', 'CSeq', 'Call-ID'))
 
     def close(self):
@@ -90,14 +98,14 @@ class InviteClientTransaction(Transaction):
         self.queue = asyncio.Queue()
 
     async def start(self):
-        self.transport.send(self.request, self.remote)
+        self.transport.send(self.message, self.remote)
         self.state = State.Calling
 
         async def start_transaction():
             timeout = TIMER_A
             with async_timeout.timeout(TIMER_B):
                 while self.state == State.Calling:
-                    await self.transport.send(self.request, self.remote)
+                    await self.transport.send(self.message, self.remote)
                     await asyncio.sleep(timeout)
                     timeout *= 2
 
@@ -143,7 +151,7 @@ class InviteServerTransaction(Transaction):
 
     def receive_request(self, request):
         # TODO: store the full original request
-        if request.method == self.request.method:
+        if request.method == self.message.method:
             if self.state in (State.Proceeding, State.Completed):
                 # retransmit last response
                 pass
@@ -173,14 +181,14 @@ class InviteServerTransaction(Transaction):
 
 class ClientTransaction(Transaction):
     def start(self):
-        self.transport.send(self.request, self.remote)
+        self.transport.send(self.message, self.remote)
         self.state = State.Trying
 
         async def start_transaction():
             timeout = TIMER_E
             with async_timeout.timeout(TIMER_F):
                 while self.state == State.Calling:
-                    await self.transport.send(self.request, self.remote)
+                    await self.transport.send(self.message, self.remote)
                     await asyncio.sleep(timeout)
                     timeout = min(timeout * 2, T2)
 
@@ -190,10 +198,10 @@ class ClientTransaction(Transaction):
         if (100 <= response.status_code < 200
                 and self.state in (State.Trying, State.Proceeding)):
             self.state = State.Proceeding
-             # ... report
+            # ... report
         else:
             self.state = State.Completed
-             # ... report
+            # ... report
 
 
 class ServerTransaction(Transaction):
@@ -202,7 +210,7 @@ class ServerTransaction(Transaction):
 
     def received_request(self, request):
         # Likely catching retransmissions
-        if self.method == self.request.method:
+        if self.method == self.message.method:
             if self.state in (State.Proceeding, State.Completed):
                 # TODO: retransmit last response
                 pass
