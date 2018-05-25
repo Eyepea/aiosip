@@ -113,7 +113,9 @@ class Peer:
         if headers:
             headers['Expires'] = str(expires)
 
-        return await self.request('SUBSCRIBE', **kwargs)
+        transaction = await self.request('SUBSCRIBE', **kwargs)
+        await transaction.completed()
+        return transaction
 
     async def register(self, expires=3600, **kwargs):
 

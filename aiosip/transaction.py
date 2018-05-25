@@ -6,6 +6,7 @@ import sys
 
 import async_timeout
 
+
 from aiosip.auth import Auth
 from .exceptions import AuthentificationFailed
 
@@ -20,13 +21,6 @@ TIMER_B = T1 * 64
 TIMER_D = 32  # not based on T1
 TIMER_E = T1
 TIMER_F = T1 * 64
-
-
-def current_task(loop: asyncio.AbstractEventLoop) -> asyncio.Task:
-    if PY_37:
-        return asyncio.current_task(loop=loop)  # type: ignore
-    else:
-        return asyncio.Task.current_task(loop=loop)
 
 
 # TODO: split invite from other transactions
@@ -47,6 +41,7 @@ class Transaction:
     def __init__(self, message, peer, *, loop=None):
         self.message = message
         self.peer = peer
+        self.loop = loop or asyncio.get_event_loop()
 
         self.branch = new_branch()  # TODO: might need to get it from the message, might need to make a new one
         self.app = None
@@ -54,6 +49,7 @@ class Transaction:
         self.tag = None
 
         self._state = None
+        self._wait_for_completed = self.loop.create_future()
 
     @property
     def key(self):
@@ -66,6 +62,8 @@ class Transaction:
     @state.setter
     def state(self, value):
         self._state = value
+        if self._state == State.Completed:
+            self._wait_for_completed.set_result(None)
         if self._state == State.Terminated:
             self.close()
 
@@ -75,10 +73,16 @@ class Transaction:
                    for header in ('To', 'From', 'CSeq', 'Call-ID'))
 
     def close(self):
-        # self.
         if self.app:
             with suppress(KeyError):
                 del self.app.transactions[self.id]
+
+    def set_exception(self, exception):
+        self._wait_for_completed.set_exception(exception)
+        self.state = State.Terminated
+
+    async def completed(self):
+        await self._wait_for_completed
 
 
 class InviteClientTransaction(Transaction):
@@ -87,7 +91,6 @@ class InviteClientTransaction(Transaction):
         self.queue = asyncio.Queue()
 
     async def start(self):
-        self.peer.send_message(self.message)
         self.state = State.Calling
 
         async def start_transaction():
@@ -170,16 +173,18 @@ class InviteServerTransaction(Transaction):
 
 class ClientTransaction(Transaction):
     async def start(self):
-        self.peer.send_message(self.message)
         self.state = State.Trying
 
         async def start_transaction():
             timeout = TIMER_E
-            with async_timeout.timeout(TIMER_F):
-                while self.state == State.Calling:
-                    self.peer.send_message(self.message)
-                    await asyncio.sleep(timeout)
-                    timeout = min(timeout * 2, T2)
+            try:
+                with async_timeout.timeout(TIMER_F):
+                    while self.state == State.Trying:
+                        self.peer.send_message(self.message)
+                        await asyncio.sleep(timeout)
+                        timeout = min(timeout * 2, T2)
+            except asyncio.TimeoutError as err:
+                self.set_exception(err)
 
         self.task = asyncio.ensure_future(start_transaction())
 
