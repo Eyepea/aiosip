@@ -10,11 +10,10 @@ from contextlib import suppress
 
 import aiodns
 
-from . import __version__
+from . import __version__, exceptions
 from .contact import Contact
 from .dialog import Dialog
 from .dialplan import BaseDialplan
-from .exceptions import SIPError, SIPNotFound, SIPTransactionDoesNotExist
 from .message import Request, Response
 from .peers import TCPConnector, UDPConnector, WSConnector
 from .protocol import TCP, UDP, WS
@@ -31,6 +30,14 @@ DEFAULTS = {
     'user_agent': 'Python/{0[0]}.{0[1]}.{0[2]} aiosip/{1}'.format(sys.version_info, __version__),
     'override_contact_host': None,
 }
+
+
+def get_branch(header):
+    # TODO: hack
+    position = header.find(';branch=')
+    if position == -1:
+        raise LookupError('Not branch found')
+    return header[header.find(';branch=') + 8:]
 
 
 class Application(MutableMapping):
@@ -90,17 +97,31 @@ class Application(MutableMapping):
         return server
 
     async def _dispatch(self, protocol, message, addr):
+        async def send(status_code):
+            connector = self._connectors[type(protocol)]
+            peer = await connector.get_peer_via(message.headers['Via'], protocol=protocol)
+
+            peer.send_message(Response(
+                status_code=status_code,
+                status_message=None,
+                headers={'CSeq': message.headers['CSeq']},
+                from_details=message.to_details,
+                to_details=message.from_details,
+                contact_details=Contact.from_header('"Anonymous" <sip:anonymous@anonymous.invalid>'),
+                payload=None,
+            ))
+
         if isinstance(message, Request):
             try:
                 await self._received_request(protocol, message)
-            except SIPError as err:
-                self.send(status_code=err.status_code)
+            except exceptions.SIPError as err:
+                await send(status_code=err.status_code)
 
         elif isinstance(message, Response):
             await self._received_response(message)
 
     async def _received_request(self, protocol, message):
-        branch = message.headers['Via'].branch
+        branch = get_branch(message.headers['Via'])
         transaction = self._transactions.get((branch, message.method))
         if transaction:
             await transaction.received_request(message)
@@ -109,7 +130,7 @@ class Application(MutableMapping):
         elif message.method == 'CANCEL':
             transaction = self._transactions.get((branch, 'INVITE'))
             if not transaction:
-                raise SIPTransactionDoesNotExist(
+                raise exceptions.SIPTransactionDoesNotExist(
                     "Original transaction does not exist")
 
             await transaction.received_request(message)
@@ -124,11 +145,11 @@ class Application(MutableMapping):
                 if transaction:
                     transaction.received_request(message)
             else:
-                raise SIPTransactionDoesNotExist("Dialog does not exist")
+                raise exceptions.SIPTransactionDoesNotExist("Dialog does not exist")
 
         # Handle out-of-dialog requests
         else:
-            result = self._run_dialplan(protocol, message)
+            result = await self._run_dialplan(protocol, message)
             if result:
                 # TODO: implement
                 pass
@@ -136,41 +157,22 @@ class Application(MutableMapping):
             # If OPTIONS was unhandled, use a default implementation
             elif message.method == 'OPTIONS':
                 # TODO: fix
-                raise SIPMethodNotAllowed("Method not allowed")
+                raise exceptions.SIPMethodNotAllowed("Method not allowed")
 
             elif message.method != 'ACK':
-                raise SIPMethodNotAllowed("Method not allowed")
+                raise exceptions.SIPMethodNotAllowed("Method not allowed")
 
     async def _received_response(self, message):
-        branch = message.headers['Via'].branch
+
+        branch = get_branch(message.headers['Via'])
         transaction = self._transactions.get((branch, message.method))
         if transaction:
             await transaction.received_response(message)
 
     async def _run_dialplan(self, protocol, msg):
         call_id = msg.headers['Call-ID']
-        via_header = msg.headers['Via']
-
-        # TODO: isn't multidict supposed to only return the first header?
-        if isinstance(via_header, list):
-            via_header = via_header[0]
-
         connector = self._connectors[type(protocol)]
-        via = Via.from_header(via_header)
-        via_addr = via['host'], int(via['port'])
-        peer = await connector.get_peer(protocol, via_addr)
-
-        async def reply(*args, **kwargs):
-            dialog = peer._create_dialog(
-                method=msg.method,
-                from_details=Contact.from_header(msg.headers['To']),
-                to_details=Contact.from_header(msg.headers['From']),
-                call_id=call_id,
-                inbound=True
-            )
-
-            await dialog.reply(*args, **kwargs)
-            await dialog.close()
+        peer = await connector.get_peer_via(msg.headers['Via'], protocol=protocol)
 
         try:
             route = await self.dialplan.resolve(
@@ -182,8 +184,7 @@ class Application(MutableMapping):
             )
 
             if not route or not asyncio.iscoroutinefunction(route):
-                await reply(msg, status_code=501)
-                return
+                raise exceptions.SIPNotImplemented()
 
             t = asyncio.ensure_future(self._call_route(peer, route, msg))
             self._tasks.append(t)
@@ -196,7 +197,7 @@ class Application(MutableMapping):
             if self.debug:
                 with suppress(Exception):
                     payload = traceback.format_exc()
-            await reply(msg, status_code=500, payload=payload)
+            raise exceptions.SIPServerError(payload=payload)
 
     async def _call_route(self, peer, route, msg):
         # for middleware_factory in reversed(self._middleware):

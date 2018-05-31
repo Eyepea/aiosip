@@ -10,6 +10,7 @@ from . import utils
 from .contact import Contact
 from .protocol import UDP, TCP, WS
 from .dialog import Dialog, InviteDialog
+from .via import Via
 
 LOG = logging.getLogger(__name__)
 
@@ -216,6 +217,14 @@ class BaseConnector:
 
     async def get_peer(self, protocol, peer_addr):
         return await self._dispatch(protocol, peer_addr)
+
+    async def get_peer_via(self, via_header, *, protocol):
+        if isinstance(via_header, list):
+            via_header = via_header[0]
+
+        via = Via.from_header(via_header)
+        via_addr = via['host'], int(via['port'])
+        return await self.get_peer(protocol, via_addr)
 
     def connection_lost(self, protocol):
         for key, peer in list(self._peers.items()):

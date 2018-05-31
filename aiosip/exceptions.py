@@ -24,7 +24,8 @@ class InviteOngoing(AiosipException):
 
 
 class SIPError(Exception):
-    pass
+    def __init__(self):
+        self.payload = None
 
 
 class SIPNotFound(SIPError):
@@ -37,3 +38,14 @@ class SIPMethodNotAllowed(SIPError):
 
 class SIPTransactionDoesNotExist(SIPError):
     status_code = 481
+
+
+class SIPServerError(SIPError):
+    status_code = 500
+
+    def __init__(self, payload):
+        self.payload = payload
+
+
+class SIPNotImplemented(SIPError):
+    status_code = 501
