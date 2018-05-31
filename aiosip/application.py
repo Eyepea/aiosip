@@ -210,9 +210,22 @@ class Application(MutableMapping):
         class Request:
             def __init__(self, transaction):
                 self.transaction = transaction
+                self.message = msg
 
-            def accept(self, *args, **kwargs):
-                pass
+            async def accept(self, headers, *, status_code=200):
+                response = Response(
+                    status_code=status_code,
+                    status_message=None,
+                    headers=dict({'CSeq': msg.headers['CSeq'],
+                                  'Via': msg.headers['Via']},
+                                 **headers),
+                    from_details=msg.to_details,
+                    to_details=msg.from_details,
+                    contact_details=peer.get_contact_details(msg.from_details),
+                    payload=None,
+                )
+                print(transaction)
+                transaction.send_response(response)
 
             def reject(self, *, status_code):
                 pass

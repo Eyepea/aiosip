@@ -112,8 +112,9 @@ class Peer:
 
     async def subscribe(self, expires=3600, **kwargs):
         headers = kwargs.get('headers')
-        if headers:
-            headers['Expires'] = str(expires)
+        if not headers:
+            headers = kwargs['headers'] = {}
+        headers['Expires'] = str(expires)
 
         transaction = await self.request('SUBSCRIBE', **kwargs)
         await transaction.completed()
@@ -169,6 +170,19 @@ class Peer:
     def __repr__(self):
         return '<{0} {1[0]}:{1[1]} {2}, local_addr={3[0]}:{3[1]}>'.format(
             self.__class__.__name__, self.peer_addr, self.protocol.__name__, self.local_addr)
+
+    # TODO: this is weird
+    def get_contact_details(self, from_details):
+        host, port = self.local_addr
+
+        return Contact(
+            {
+                'uri': 'sip:{username}@{host_and_port};transport={protocol}'.format(
+                    username=from_details['uri']['user'],
+                    host_and_port=utils.format_host_and_port(host, port),
+                    protocol=type(self._protocol).__name__.lower()
+                )
+            })
 
 
 class BaseConnector:

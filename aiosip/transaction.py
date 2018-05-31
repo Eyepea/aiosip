@@ -218,10 +218,10 @@ class ServerTransaction(Transaction):
         if (100 <= response.status_code < 200
                 and self.state in (State.Trying, State.Proceeding)):
             self.state = State.Proceeding
-            # send ...
         else:
             self.state = State.Completed
-            # send ...
+
+        self.peer.send_message(response)
 
 
 async def start_client_transaction(app, message, peer):
