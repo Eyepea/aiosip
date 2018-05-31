@@ -104,7 +104,8 @@ class Application(MutableMapping):
             peer.send_message(Response(
                 status_code=status_code,
                 status_message=None,
-                headers={'CSeq': message.headers['CSeq']},
+                headers={'CSeq': message.headers['CSeq'],
+                         'Via': message.headers['Via']},
                 from_details=message.to_details,
                 to_details=message.from_details,
                 contact_details=Contact.from_header('"Anonymous" <sip:anonymous@anonymous.invalid>'),
@@ -118,7 +119,10 @@ class Application(MutableMapping):
                 await send(status_code=err.status_code)
 
         elif isinstance(message, Response):
-            await self._received_response(message)
+            try:
+                await self._received_response(message)
+            except Exception:
+                LOG.exception("Failed to handle response")
 
     async def _received_request(self, protocol, message):
         branch = get_branch(message.headers['Via'])

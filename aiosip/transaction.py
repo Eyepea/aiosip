@@ -42,8 +42,10 @@ class Transaction:
         self.peer = peer
         self.loop = loop or asyncio.get_event_loop()
 
-        self.branch = new_branch(
-        )  # TODO: might need to get it from the message, might need to make a new one
+        # TODO: akward API
+        # TODO: sometimes will need to be pulled from the message
+        self.message._branch = self.branch = new_branch()
+
         self.app = None
         self.remote = None
         self.tag = None
@@ -222,9 +224,10 @@ class ServerTransaction(Transaction):
             # send ...
 
 
-async def start_client_transaction(message, peer):
+async def start_client_transaction(app, message, peer):
     cls = InviteClientTransaction if message.method == 'INVITE' else ClientTransaction
     transaction = cls(message, peer)
+    app._transactions[(transaction.branch, message.method)] = transaction
     await transaction.start()
     return transaction
 
