@@ -1,16 +1,15 @@
-import enum
 import asyncio
+import enum
 import logging
-
-from multidict import CIMultiDict
 from collections import defaultdict
+
 from async_timeout import timeout as Timeout
+from multidict import CIMultiDict
 
 from . import utils
 from .auth import Auth
 from .message import Request, Response
 from .transaction import ClientTransaction
-
 
 LOG = logging.getLogger(__name__)
 
@@ -50,16 +49,17 @@ class DialogBase:
         self.transactions = defaultdict(dict)
 
         # TODO: Needs to be last because we need the above attributes set
-        self.original_msg = self._prepare_request(method, headers=headers, payload=payload)
+        self.original_msg = self._prepare_request(
+            method, headers=headers, payload=payload)
 
         self._closed = False
         self._closing = None
 
     @property
     def dialog_id(self):
-        return frozenset((self.original_msg.to_details['params'].get('tag'),
-                          self.original_msg.from_details['params']['tag'],
-                          self.call_id))
+        return frozenset(
+            (self.original_msg.to_details['params'].get('tag'),
+             self.original_msg.from_details['params']['tag'], self.call_id))
 
     def _receive_response(self, msg):
 
@@ -76,9 +76,17 @@ class DialogBase:
                 # TODO: Hack to suppress warning on ACK messages,
                 # since we don't quite handle them correctly. They're
                 # ignored, for now...
-                LOG.debug('Response without Request. The Transaction may already be closed. \n%s', msg)
+                LOG.debug(
+                    'Response without Request. The Transaction may already be closed. \n%s',
+                    msg)
 
-    def _prepare_request(self, method, contact_details=None, headers=None, payload=None, cseq=None, to_details=None):
+    def _prepare_request(self,
+                         method,
+                         contact_details=None,
+                         headers=None,
+                         payload=None,
+                         cseq=None,
+                         to_details=None):
 
         if not cseq:
             self.cseq += 1
@@ -109,20 +117,30 @@ class DialogBase:
         headers = self.original_msg.headers
         if expires is not None:
             headers['Expires'] = expires
-        return await self.request(self.original_msg.method, headers=headers, payload=self.original_msg.payload,
-                                  timeout=timeout)
+        return await self.request(
+            self.original_msg.method,
+            headers=headers,
+            payload=self.original_msg.payload,
+            timeout=timeout)
 
     def ack(self, msg, headers=None, *args, **kwargs):
         headers = CIMultiDict(headers or {})
 
         headers['Via'] = msg.headers['Via']
-        ack = self._prepare_request('ACK', cseq=msg.cseq, to_details=msg.to_details, headers=headers, *args, **kwargs)
+        ack = self._prepare_request(
+            'ACK',
+            cseq=msg.cseq,
+            to_details=msg.to_details,
+            headers=headers,
+            *args,
+            **kwargs)
         self.peer.send_message(ack)
 
     async def unauthorized(self, msg):
         self._nonce = utils.gen_str(10)
         headers = CIMultiDict()
-        headers['WWW-Authenticate'] = str(Auth(nonce=self._nonce, algorithm='md5', realm='sip'))
+        headers['WWW-Authenticate'] = str(
+            Auth(nonce=self._nonce, algorithm='md5', realm='sip'))
         await self.reply(msg, status_code=401, headers=headers)
 
     def validate_auth(self, msg, password):
@@ -178,7 +196,8 @@ class DialogBase:
                 transaction._error(ConnectionError)
 
     async def start_unreliable_transaction(self, msg, method=None):
-        transaction = ClientTransaction(self, original_msg=msg, loop=self.app.loop)
+        transaction = ClientTransaction(
+            self, original_msg=msg, loop=self.app.loop)
         self.transactions[method or msg.method][msg.cseq] = transaction
         return await transaction.start()
 
@@ -193,7 +212,12 @@ class DialogBase:
         for item in to_delete:
             del self.transactions[item[0]][item[1]]
 
-    async def request(self, method, contact_details=None, headers=None, payload=None, timeout=None):
+    async def request(self,
+                      method,
+                      contact_details=None,
+                      headers=None,
+                      payload=None,
+                      timeout=None):
         msg = self._prepare_request(method, contact_details, headers, payload)
         if msg.method != 'ACK':
             async with Timeout(timeout):
@@ -201,11 +225,23 @@ class DialogBase:
         else:
             self.peer.send_message(msg)
 
-    async def reply(self, request, status_code, status_message=None, payload=None, headers=None, contact_details=None):
-        msg = self._prepare_response(request, status_code, status_message, payload, headers, contact_details)
+    async def reply(self,
+                    request,
+                    status_code,
+                    status_message=None,
+                    payload=None,
+                    headers=None,
+                    contact_details=None):
+        msg = self._prepare_response(request, status_code, status_message,
+                                     payload, headers, contact_details)
         self.peer.send_message(msg)
 
-    def _prepare_response(self, request, status_code, status_message=None, payload=None, headers=None,
+    def _prepare_response(self,
+                          request,
+                          status_code,
+                          status_message=None,
+                          payload=None,
+                          headers=None,
                           contact_details=None):
 
         if contact_details:
@@ -228,8 +264,7 @@ class DialogBase:
             contact_details=self.contact_details,
             payload=payload,
             cseq=request.cseq,
-            method=request.method
-        )
+            method=request.method)
         return msg
 
     def __repr__(self):
@@ -271,11 +306,9 @@ class Dialog(DialogBase):
 
         if 'tag' in msg.to_details['params']:
             try:
-                del self.app._dialogs[
-                    frozenset((self.original_msg.to_details['params'].get('tag'),
-                               None,
-                               self.call_id))
-                ]
+                del self.app._dialogs[frozenset(
+                    (self.original_msg.to_details['params'].get('tag'), None,
+                     self.call_id))]
             except KeyError:
                 pass
 
@@ -286,18 +319,24 @@ class Dialog(DialogBase):
         headers = CIMultiDict(headers or {})
         if 'Expires' not in headers:
             headers['Expires'] = int(expires)
-        return await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
+        return await self.request(
+            self.original_msg.method, headers=headers, *args, **kwargs)
 
     async def close(self, headers=None, *args, **kwargs):
         if not self._closed:
             self._closed = True
             result = None
-            if not self.inbound and self.original_msg.method in ('REGISTER', 'SUBSCRIBE'):
+            if not self.inbound and self.original_msg.method in ('REGISTER',
+                                                                 'SUBSCRIBE'):
                 headers = CIMultiDict(headers or {})
                 if 'Expires' not in headers:
                     headers['Expires'] = 0
                 try:
-                    result = await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
+                    result = await self.request(
+                        self.original_msg.method,
+                        headers=headers,
+                        *args,
+                        **kwargs)
                 finally:
                     self._close()
 
@@ -401,7 +440,8 @@ class InviteDialog(DialogBase):
 
     async def _receive_request(self, msg):
         if 'tag' in msg.from_details['params']:
-            self.to_details['params']['tag'] = msg.from_details['params']['tag']
+            self.to_details['params']['tag'] = msg.from_details['params'][
+                'tag']
 
         if msg.method == 'BYE':
             self._closed = True
@@ -450,7 +490,8 @@ class InviteDialog(DialogBase):
                 msg = self._prepare_request('CANCEL')
 
             if msg:
-                transaction = UnreliableTransaction(self, original_msg=msg, loop=self.app.loop)
+                transaction = UnreliableTransaction(
+                    self, original_msg=msg, loop=self.app.loop)
                 self.transactions[msg.method][msg.cseq] = transaction
 
                 try:

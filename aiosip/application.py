@@ -1,25 +1,28 @@
 """
 Same structure as aiohttp.web.Application
 """
-import sys
 import asyncio
 import logging
-import aiodns
-from contextlib import suppress
+import sys
 import traceback
+from collections import MutableMapping
+from contextlib import suppress
+
+import aiodns
+
+from . import __version__
+from .contact import Contact
+from .dialog import Dialog
+from .dialplan import BaseDialplan
+from .exceptions import SIPError, SIPNotFound, SIPTransactionDoesNotExist
+from .message import Request, Response
+from .peers import TCPConnector, UDPConnector, WSConnector
+from .protocol import TCP, UDP, WS
+from .via import Via
 
 __all__ = ['Application']
 
-from collections import MutableMapping
 
-from . import __version__
-from .dialog import Dialog
-from .dialplan import BaseDialplan
-from .protocol import UDP, TCP, WS
-from .peers import UDPConnector, TCPConnector, WSConnector
-from .message import Response
-from .contact import Contact
-from .via import Via
 
 
 LOG = logging.getLogger(__name__)
@@ -89,12 +92,12 @@ class Application(MutableMapping):
     async def _dispatch(self, protocol, message, addr):
         if isinstance(message, Request):
             try:
-                self._received_request(protocol, message)
+                await self._received_request(protocol, message)
             except SIPError as err:
                 self.send(status_code=err.status_code)
 
         elif isinstance(message, Response):
-            self._received_response(message)
+            await self._received_response(message)
 
     async def _received_request(self, protocol, message):
         branch = message.headers['Via'].branch
@@ -137,7 +140,6 @@ class Application(MutableMapping):
 
             elif message.method != 'ACK':
                 raise SIPMethodNotAllowed("Method not allowed")
-
 
     async def _received_response(self, message):
         branch = message.headers['Via'].branch

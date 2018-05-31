@@ -1,13 +1,12 @@
 import asyncio
-from contextlib import suppress
 import enum
 import logging
 import sys
+from contextlib import suppress
 
 import async_timeout
 
-
-from aiosip.auth import Auth
+from .auth import Auth
 from .exceptions import AuthentificationFailed
 
 LOG = logging.getLogger(__name__)
@@ -43,7 +42,8 @@ class Transaction:
         self.peer = peer
         self.loop = loop or asyncio.get_event_loop()
 
-        self.branch = new_branch()  # TODO: might need to get it from the message, might need to make a new one
+        self.branch = new_branch(
+        )  # TODO: might need to get it from the message, might need to make a new one
         self.app = None
         self.remote = None
         self.tag = None
