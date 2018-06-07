@@ -88,14 +88,12 @@ class Transaction:
         await self._wait_for_completed
 
     async def recv(self):
-        return await self._queue.wait()
+        return await self._queue.get()
 
     if PY36:
         async def __aiter__(self):
-            return self
-
-        async def __anext__(self):
-            return await self.recv()
+            while True:
+                yield await self.recv()
 
 
 class InviteClientTransaction(Transaction):

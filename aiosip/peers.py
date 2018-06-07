@@ -9,7 +9,7 @@ from multidict import CIMultiDict
 from . import utils
 from .contact import Contact
 from .protocol import UDP, TCP, WS
-from .dialog import Dialog, InviteDialog
+from .dialog import Dialog
 from .via import Via
 
 LOG = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ class Peer:
 
         return await self.request('REGISTER', **kwargs)
 
-    async def invite(self, dialog_factory=InviteDialog, **kwargs):
+    async def invite(self, dialog_factory=Dialog, **kwargs):
 
         dialog = self._create_dialog(dialog_factory=dialog_factory, method='INVITE', **kwargs)
         await dialog.start()

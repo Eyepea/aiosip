@@ -224,8 +224,8 @@ class Application(MutableMapping):
                     contact_details=peer.get_contact_details(msg.from_details),
                     payload=None,
                 )
-                print(transaction)
                 transaction.send_response(response)
+                return Dialog(self, msg, response, transaction)
 
             def reject(self, *, status_code):
                 pass
