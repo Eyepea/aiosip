@@ -11,7 +11,7 @@ from .exceptions import AuthentificationFailed
 
 LOG = logging.getLogger(__name__)
 
-PY_37 = sys.version_info >= (3, 7)
+PY36 = sys.version_info >= (3, 6)
 
 T1 = 0.5
 T2 = 4
@@ -52,6 +52,7 @@ class Transaction:
 
         self._state = None
         self._wait_for_completed = self.loop.create_future()
+        self._queue = asyncio.Queue()
 
     @property
     def key(self):
@@ -86,12 +87,18 @@ class Transaction:
     async def completed(self):
         await self._wait_for_completed
 
+    async def recv(self):
+        return await self._queue.wait()
+
+    if PY36:
+        async def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            return await self.recv()
+
 
 class InviteClientTransaction(Transaction):
-    def __init__(self, *args):
-        super().__init__(*args)
-        self.queue = asyncio.Queue()
-
     async def start(self):
         self.state = State.Calling
 
@@ -109,13 +116,13 @@ class InviteClientTransaction(Transaction):
         if (100 <= response.status_code < 200
                 and self.state in (State.Calling, State.Proceeding)):
             self.state = State.Proceeding
-            await self.queue.put(response)
+            await self._queue.put(response)
 
         elif (response.status_code == 200
               and self.state in (State.Calling, State.Proceeding)):
             self.state = State.Terminated
             self.ack()
-            await self.queue.put(response)
+            await self._queue.put(response)
 
         elif self.state in (State.Calling, State.Proceeding):
             self.state = State.Completed
@@ -129,12 +136,6 @@ class InviteClientTransaction(Transaction):
 
     def ack(self):
         pass
-
-    async def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        await self.queue.wait()
 
 
 class InviteServerTransaction(Transaction):
