@@ -27,15 +27,19 @@ class Dialog:
         self.transaction = transaction
         self.cseq = itertools.count(20)
 
-    async def send(self, method, *, payload=None):
+    async def send(self, method, *, headers=None, payload=None):
         return await self.transaction.peer.send_message(
             Request(
                 method=method,
                 from_details=self.response.to_details,
                 to_details=self.response.from_details,
                 contact_details=self.response.contact_details,
-                payload=payload,
-                cseq=next(self.cseq)))
+                headers=dict({
+                    'Call-ID': self.response.headers['Call-ID'],
+                    'Via': self.response.headers['Via']
+                }, **(headers or {})),
+                cseq=next(self.cseq),
+                payload=payload))
 
     async def notify(self, payload):
         return await self.send('NOTIFY', payload=payload)

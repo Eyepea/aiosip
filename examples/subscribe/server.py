@@ -9,7 +9,7 @@ import aiosip
 async def notify(dialog):
     for idx in itertools.count(1):
         print("------------>", idx)
-        await dialog.notify(payload=idx)
+        await dialog.notify(payload=str(idx))
         await asyncio.sleep(1)
 
 

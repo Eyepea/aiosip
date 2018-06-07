@@ -217,6 +217,7 @@ class Application(MutableMapping):
                     status_code=status_code,
                     status_message=None,
                     headers=dict({'CSeq': msg.headers['CSeq'],
+                                  'Call-ID': msg.headers['Call-ID'],
                                   'Via': msg.headers['Via']},
                                  **headers),
                     from_details=msg.to_details,
@@ -224,6 +225,7 @@ class Application(MutableMapping):
                     contact_details=peer.get_contact_details(msg.from_details),
                     payload=None,
                 )
+                print(response)
                 transaction.send_response(response)
                 return Dialog(self, msg, response, transaction)
 
