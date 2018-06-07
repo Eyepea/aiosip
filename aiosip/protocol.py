@@ -17,9 +17,11 @@ class UDP(asyncio.DatagramProtocol):
 
     def send_message(self, msg, addr):
         if isinstance(msg.headers['Via'], str):
-            msg.headers['Via'] %= {'protocol': self.via}
+            msg.headers['Via'] %= {'protocol': self.via,
+                                   'branch': msg._branch}
         else:
-            msg.headers['Via'][0] %= {'protocol': self.via}
+            msg.headers['Via'][0] %= {'protocol': self.via,
+                                      'branch': msg._branch}
 
         LOG.log(5, 'Sending to: "%s" via UDP: "%s"', addr, msg)
         self.transport.sendto(msg.encode(), addr)

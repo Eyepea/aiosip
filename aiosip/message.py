@@ -29,6 +29,7 @@ class Message:
                  from_details=None,
                  to_details=None,
                  contact_details=None,
+                 branch=None,
                  ):
 
         if headers:
@@ -52,11 +53,15 @@ class Message:
         self._payload = payload
         self._raw_payload = None
 
+        if not branch:
+            branch = utils.gen_branch(10)
+        self._branch = branch
+
         if 'Via' not in self.headers:
             self.headers['Via'] = 'SIP/2.0/%(protocol)s ' + \
                 utils.format_host_and_port(self.contact_details['uri']['host'],
                                            self.contact_details['uri']['port']) + \
-                ';branch=%s' % utils.gen_branch(10)
+                ';branch=%(branch)s'
 
     @property
     def payload(self):

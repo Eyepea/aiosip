@@ -9,7 +9,8 @@ from multidict import CIMultiDict
 from . import utils
 from .contact import Contact
 from .protocol import UDP, TCP, WS
-from .dialog import Dialog, InviteDialog
+from .dialog import Dialog
+from .via import Via
 
 LOG = logging.getLogger(__name__)
 
@@ -85,35 +86,39 @@ class Peer:
 
     async def request(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
                       headers=None, cseq=0, payload=None, dialog_factory=Dialog, timeout=None, **kwargs):
+        from .message import Request
+        from .transaction import start_client_transaction
 
-        dialog = self._create_dialog(method=method,
-                                     from_details=from_details,
-                                     to_details=to_details,
-                                     contact_details=contact_details,
-                                     headers=headers,
-                                     payload=payload,
-                                     password=password,
-                                     call_id=call_id,
-                                     cseq=cseq,
-                                     dialog_factory=dialog_factory,
-                                     **kwargs)
-        try:
-            response = await dialog.start(timeout=timeout)
-            dialog.status_code = response.status_code
-            dialog.status_message = response.status_message
-            return dialog
-        except asyncio.CancelledError:
-            dialog.cancel()
-            raise
+        if not contact_details:
+            host, port = self.local_addr
+
+            if self._app.defaults['override_contact_host']:
+                host = self._app.defaults['override_contact_host']
+            elif host == '0.0.0.0' or host.startswith('127.'):
+                host = from_details['uri']['host']
+
+            contact_details = Contact(
+                {
+                    'uri': 'sip:{username}@{host_and_port};transport={protocol}'.format(
+                        username=from_details['uri']['user'],
+                        host_and_port=utils.format_host_and_port(host, port),
+                        protocol=type(self._protocol).__name__.lower()
+                    )
+                })
+
+        message = Request(method, 20, from_details, to_details, contact_details, headers, payload)
+        # TODO: this is weird
+        return await start_client_transaction(self._app, message, self)
 
     async def subscribe(self, expires=3600, **kwargs):
+        headers = kwargs.get('headers')
+        if not headers:
+            headers = kwargs['headers'] = {}
+        headers['Expires'] = str(expires)
 
-        if expires:
-            headers = kwargs.get('headers', CIMultiDict())
-            headers['Expires'] = expires
-            kwargs['headers'] = headers
-
-        return await self.request('SUBSCRIBE', **kwargs)
+        transaction = await self.request('SUBSCRIBE', **kwargs)
+        await transaction.completed()
+        return transaction
 
     async def register(self, expires=3600, **kwargs):
 
@@ -124,7 +129,7 @@ class Peer:
 
         return await self.request('REGISTER', **kwargs)
 
-    async def invite(self, dialog_factory=InviteDialog, **kwargs):
+    async def invite(self, dialog_factory=Dialog, **kwargs):
 
         dialog = self._create_dialog(dialog_factory=dialog_factory, method='INVITE', **kwargs)
         await dialog.start()
@@ -165,6 +170,19 @@ class Peer:
     def __repr__(self):
         return '<{0} {1[0]}:{1[1]} {2}, local_addr={3[0]}:{3[1]}>'.format(
             self.__class__.__name__, self.peer_addr, self.protocol.__name__, self.local_addr)
+
+    # TODO: this is weird
+    def get_contact_details(self, from_details):
+        host, port = self.local_addr
+
+        return Contact(
+            {
+                'uri': 'sip:{username}@{host_and_port};transport={protocol}'.format(
+                    username=from_details['uri']['user'],
+                    host_and_port=utils.format_host_and_port(host, port),
+                    protocol=type(self._protocol).__name__.lower()
+                )
+            })
 
 
 class BaseConnector:
@@ -214,6 +232,14 @@ class BaseConnector:
 
     async def get_peer(self, protocol, peer_addr):
         return await self._dispatch(protocol, peer_addr)
+
+    async def get_peer_via(self, via_header, *, protocol):
+        if isinstance(via_header, list):
+            via_header = via_header[0]
+
+        via = Via.from_header(via_header)
+        via_addr = via['host'], int(via['port'])
+        return await self.get_peer(protocol, via_addr)
 
     def connection_lost(self, protocol):
         for key, peer in list(self._peers.items()):

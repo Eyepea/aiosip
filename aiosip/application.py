@@ -1,25 +1,27 @@
 """
 Same structure as aiohttp.web.Application
 """
-import sys
 import asyncio
 import logging
-import aiodns
-from contextlib import suppress
+import sys
 import traceback
+from collections import MutableMapping
+from contextlib import suppress
+
+import aiodns
+
+from . import __version__, exceptions
+from .contact import Contact
+from .dialog import Dialog
+from .dialplan import BaseDialplan
+from .message import Request, Response
+from .peers import TCPConnector, UDPConnector, WSConnector
+from .protocol import TCP, UDP, WS
+from .via import Via
 
 __all__ = ['Application']
 
-from collections import MutableMapping
 
-from . import __version__
-from .dialog import Dialog
-from .dialplan import BaseDialplan
-from .protocol import UDP, TCP, WS
-from .peers import UDPConnector, TCPConnector, WSConnector
-from .message import Response
-from .contact import Contact
-from .via import Via
 
 
 LOG = logging.getLogger(__name__)
@@ -27,8 +29,15 @@ LOG = logging.getLogger(__name__)
 DEFAULTS = {
     'user_agent': 'Python/{0[0]}.{0[1]}.{0[2]} aiosip/{1}'.format(sys.version_info, __version__),
     'override_contact_host': None,
-    'dialog_closing_delay': 30
 }
+
+
+def get_branch(header):
+    # TODO: hack
+    position = header.find(';branch=')
+    if position == -1:
+        raise LookupError('Not branch found')
+    return header[header.find(';branch=') + 8:]
 
 
 class Application(MutableMapping):
@@ -45,22 +54,19 @@ class Application(MutableMapping):
         if loop is None:
             loop = asyncio.get_event_loop()
 
-        if defaults:
-            self.defaults = {**DEFAULTS, **defaults}
-        else:
-            self.defaults = DEFAULTS
+        self.defaults = defaults or DEFAULTS
 
-        self.debug = debug
-        self.dns = dns_resolver
-        self._finish_callbacks = []
         self._state = {}
         self._dialogs = {}
+        self._transactions = {}
         self._connectors = {UDP: UDPConnector(self, loop=loop),
                             TCP: TCPConnector(self, loop=loop),
                             WS: WSConnector(self, loop=loop)}
         self._middleware = middleware
         self._tasks = list()
 
+        self.debug = debug
+        self.dns = dns_resolver
         self.dialplan = dialplan
         self.loop = loop
 
@@ -79,7 +85,6 @@ class Application(MutableMapping):
         return peer
 
     async def run(self, *, local_addr=None, protocol=UDP, sock=None, **kwargs):
-
         if not local_addr and not sock:
             raise ValueError('One of "local_addr", "sock" is mandatory')
         elif local_addr and sock:
@@ -91,97 +96,87 @@ class Application(MutableMapping):
         server = await connector.create_server(local_addr, sock, **kwargs)
         return server
 
-    async def _call_route(self, peer, route, msg):
-        for middleware_factory in reversed(self._middleware):
-            route = await middleware_factory(route)
+    async def _dispatch(self, protocol, message, addr):
+        async def send(status_code):
+            connector = self._connectors[type(protocol)]
+            peer = await connector.get_peer_via(message.headers['Via'], protocol=protocol)
 
-        app = self
-        call_id = msg.headers['Call-ID']
+            peer.send_message(Response(
+                status_code=status_code,
+                status_message=None,
+                headers={'CSeq': message.headers['CSeq'],
+                         'Via': message.headers['Via']},
+                from_details=message.to_details,
+                to_details=message.from_details,
+                contact_details=Contact.from_header('"Anonymous" <sip:anonymous@anonymous.invalid>'),
+                payload=None,
+            ))
 
-        # TODO: refactor
-        class Request:
-            def __init__(self):
-                self.app = app
-                self.dialog = None
+        if isinstance(message, Request):
+            try:
+                await self._received_request(protocol, message)
+            except exceptions.SIPError as err:
+                await send(status_code=err.status_code)
 
-            def _create_dialog(self, dialog_factory=Dialog, **kwargs):
-                if not self.dialog:
-                    self.dialog = peer._create_dialog(
-                        method=msg.method,
-                        from_details=Contact.from_header(msg.headers['To']),
-                        to_details=Contact.from_header(msg.headers['From']),
-                        call_id=call_id,
-                        inbound=True,
-                        dialog_factory=dialog_factory,
-                        **kwargs
-                    )
-                return self.dialog
+        elif isinstance(message, Response):
+            try:
+                await self._received_response(message)
+            except Exception:
+                LOG.exception("Failed to handle response")
 
-            async def prepare(self, status_code, *args, **kwargs):
-                dialog = self._create_dialog()
+    async def _received_request(self, protocol, message):
+        branch = get_branch(message.headers['Via'])
+        transaction = self._transactions.get((branch, message.method))
+        if transaction:
+            await transaction.received_request(message)
 
-                await dialog.reply(msg, status_code, *args, **kwargs)
-                if status_code >= 300:
-                    await dialog.close()
-                    return None
+        # If we got a CANCEL, look for a matching INVITE
+        elif message.method == 'CANCEL':
+            transaction = self._transactions.get((branch, 'INVITE'))
+            if not transaction:
+                raise exceptions.SIPTransactionDoesNotExist(
+                    "Original transaction does not exist")
 
-                return dialog
+            await transaction.received_request(message)
 
-        request = Request()
-        await route(request, msg)
+        # Handle in-dialog requests
+        elif 'tag' in message.headers['To']:
+            dialog = self.find_dialog(message)
+            if dialog:
+                pass
+            elif message.method == 'ACK':
+                transaction = self._transactions((branch, 'INVITE'))
+                if transaction:
+                    transaction.received_request(message)
+            else:
+                raise exceptions.SIPTransactionDoesNotExist("Dialog does not exist")
 
-    async def _dispatch(self, protocol, msg, addr):
-        call_id = msg.headers['Call-ID']
-        dialog = None
+        # Handle out-of-dialog requests
+        else:
+            result = await self._run_dialplan(protocol, message)
+            if result:
+                # TODO: implement
+                pass
 
-        # First incoming request of dialogs do not yet have a tag in to headers
-        if 'tag' in msg.to_details['params']:
-            dialog = self._dialogs.get(frozenset((msg.to_details['params']['tag'],
-                                                  msg.from_details['params']['tag'],
-                                                  call_id)))
+            # If OPTIONS was unhandled, use a default implementation
+            elif message.method == 'OPTIONS':
+                # TODO: fix
+                raise exceptions.SIPMethodNotAllowed("Method not allowed")
 
-        # First response of dialogs have a tag in the to header but the dialog is not
-        # yet aware of it. Try to match only with the from header tag
-        if dialog is None:
-            dialog = self._dialogs.get(frozenset((None, msg.from_details['params']['tag'], call_id)))
+            elif message.method != 'ACK':
+                raise exceptions.SIPMethodNotAllowed("Method not allowed")
 
-        if dialog is not None:
-            await dialog.receive_message(msg)
-            return
+    async def _received_response(self, message):
 
-        # If we got an ACK, but nowhere to deliver it, drop it. If we
-        # got a response without an associated message (likely a stale
-        # retransmission, drop it)
-        if isinstance(msg, Response) or msg.method == 'ACK':
-            LOG.debug('Discarding incoming message: %s', msg)
-            return
-
-        await self._run_dialplan(protocol, msg)
+        branch = get_branch(message.headers['Via'])
+        transaction = self._transactions.get((branch, message.method))
+        if transaction:
+            await transaction.received_response(message)
 
     async def _run_dialplan(self, protocol, msg):
         call_id = msg.headers['Call-ID']
-        via_header = msg.headers['Via']
-
-        # TODO: isn't multidict supposed to only return the first header?
-        if isinstance(via_header, list):
-            via_header = via_header[0]
-
         connector = self._connectors[type(protocol)]
-        via = Via.from_header(via_header)
-        via_addr = via['host'], int(via['port'])
-        peer = await connector.get_peer(protocol, via_addr)
-
-        async def reply(*args, **kwargs):
-            dialog = peer._create_dialog(
-                method=msg.method,
-                from_details=Contact.from_header(msg.headers['To']),
-                to_details=Contact.from_header(msg.headers['From']),
-                call_id=call_id,
-                inbound=True
-            )
-
-            await dialog.reply(*args, **kwargs)
-            await dialog.close()
+        peer = await connector.get_peer_via(msg.headers['Via'], protocol=protocol)
 
         try:
             route = await self.dialplan.resolve(
@@ -193,8 +188,7 @@ class Application(MutableMapping):
             )
 
             if not route or not asyncio.iscoroutinefunction(route):
-                await reply(msg, status_code=501)
-                return
+                raise exceptions.SIPNotImplemented()
 
             t = asyncio.ensure_future(self._call_route(peer, route, msg))
             self._tasks.append(t)
@@ -207,34 +201,44 @@ class Application(MutableMapping):
             if self.debug:
                 with suppress(Exception):
                     payload = traceback.format_exc()
-            await reply(msg, status_code=500, payload=payload)
+            raise exceptions.SIPServerError(payload=payload)
+
+    async def _call_route(self, peer, route, msg):
+        # for middleware_factory in reversed(self._middleware):
+        #     route = await middleware_factory(route)
+
+        class Request:
+            def __init__(self, transaction):
+                self.transaction = transaction
+                self.message = msg
+
+            async def accept(self, headers, *, status_code=200):
+                response = Response(
+                    status_code=status_code,
+                    status_message=None,
+                    headers=dict({'CSeq': msg.headers['CSeq'],
+                                  'Call-ID': msg.headers['Call-ID'],
+                                  'Via': msg.headers['Via']},
+                                 **headers),
+                    from_details=msg.to_details,
+                    to_details=msg.from_details,
+                    contact_details=peer.get_contact_details(msg.from_details),
+                    payload=None,
+                )
+                print(response)
+                transaction.send_response(response)
+                return Dialog(self, msg, response, transaction)
+
+            def reject(self, *, status_code):
+                pass
+
+        from .transaction import start_server_transaction
+        transaction = await start_server_transaction(msg, peer)
+        await route(Request(transaction))
 
     def _connection_lost(self, protocol):
         connector = self._connectors[type(protocol)]
         connector.connection_lost(protocol)
-        # for task in self._tasks:
-        #     task.cancel()
-
-    @asyncio.coroutine
-    def finish(self):
-        callbacks = self._finish_callbacks
-        self._finish_callbacks = []
-
-        for (cb, args, kwargs) in callbacks:
-            try:
-                res = cb(self, *args, **kwargs)
-                if (asyncio.iscoroutine(res) or
-                        isinstance(res, asyncio.Future)):
-                    yield from res
-            except Exception as exc:
-                self.loop.call_exception_handler({
-                    'message': "Error in finish callback",
-                    'exception': exc,
-                    'application': self,
-                })
-
-    def register_on_finish(self, func, *args, **kwargs):
-        self._finish_callbacks.insert(0, (func, args, kwargs))
 
     async def close(self, timeout=5):
         for dialog in set(self._dialogs.values()):
@@ -246,9 +250,6 @@ class Application(MutableMapping):
             await connector.close()
         for task in self._tasks:
             task.cancel()
-
-    # def __repr__(self):
-    #     return "<Application>"
 
     # MutableMapping API
     def __eq__(self, other):

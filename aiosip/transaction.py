@@ -1,165 +1,238 @@
 import asyncio
+import enum
 import logging
+import sys
+from contextlib import suppress
 
-from aiosip.auth import Auth
+import async_timeout
+
+from .auth import Auth
 from .exceptions import AuthentificationFailed
-
 
 LOG = logging.getLogger(__name__)
 
+PY36 = sys.version_info >= (3, 6)
 
-class BaseTransaction:
-    def __init__(self, dialog, original_msg=None, attempts=3, *, loop=None):
-        self.dialog = dialog
-        self.original_msg = original_msg
+T1 = 0.5
+T2 = 4
+TIMER_A = T1
+TIMER_B = T1 * 64
+TIMER_D = 32  # not based on T1
+TIMER_E = T1
+TIMER_F = T1 * 64
+
+
+# TODO: split invite from other transactions
+class State(enum.Enum):
+    Trying = 'Trying'
+    Calling = 'Calling'
+    Proceeding = 'Proceeding'
+    Completed = 'Completed'
+    Terminated = 'Terminated'
+
+
+def new_branch():
+    import secrets
+    return ''.join(('z9hG4bK', secrets.token_urlsafe(6)))
+
+
+class Transaction:
+    def __init__(self, message, peer, *, loop=None):
+        self.message = message
+        self.peer = peer
         self.loop = loop or asyncio.get_event_loop()
-        self.attempts = attempts
-        self.retransmission = None
-        self.authentification = None
-        self._running = True
-        LOG.debug('Creating: %s', self)
 
+        # TODO: akward API
+        # TODO: sometimes will need to be pulled from the message
+        self.message._branch = self.branch = new_branch()
+
+        self.app = None
+        self.remote = None
+        self.tag = None
+
+        self._state = None
+        self._wait_for_completed = self.loop.create_future()
+        self._queue = asyncio.Queue()
+
+    @property
+    def key(self):
+        return self.message, self.branch
+
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, value):
+        self._state = value
+        if self._state == State.Completed:
+            self._wait_for_completed.set_result(None)
+        if self._state == State.Terminated:
+            self.close()
+
+    @property
+    def headers(self):
+        return set(self.message.headers[header]
+                   for header in ('To', 'From', 'CSeq', 'Call-ID'))
+
+    def close(self):
+        if self.app:
+            with suppress(KeyError):
+                del self.app.transactions[self.id]
+
+    def set_exception(self, exception):
+        self._wait_for_completed.set_exception(exception)
+        self.state = State.Terminated
+
+    async def completed(self):
+        await self._wait_for_completed
+
+    async def recv(self):
+        return await self._queue.get()
+
+    if PY36:
+        async def __aiter__(self):
+            while True:
+                yield await self.recv()
+
+
+class InviteClientTransaction(Transaction):
     async def start(self):
-        raise NotImplementedError
+        self.state = State.Calling
 
-    def _incoming(self, msg):
-        if self.retransmission:
-            self.retransmission.cancel()
-            self.retransmission = None
+        async def start_transaction():
+            timeout = TIMER_A
+            with async_timeout.timeout(TIMER_B):
+                while self.state == State.Calling:
+                    await self.peer.send_message(self.message)
+                    await asyncio.sleep(timeout)
+                    timeout *= 2
 
-        if self.authentification and msg.status_code not in (401, 407):
-            self.authentification.cancel()
-            self.authentification = None
+        self.task = asyncio.ensure_future(start_transaction())
 
-    def _error(self, error):
-        raise NotImplementedError
+    async def received_response(self, response):
+        if (100 <= response.status_code < 200
+                and self.state in (State.Calling, State.Proceeding)):
+            self.state = State.Proceeding
+            await self._queue.put(response)
 
-    def _result(self, msg):
-        raise NotImplementedError
+        elif (response.status_code == 200
+              and self.state in (State.Calling, State.Proceeding)):
+            self.state = State.Terminated
+            self.ack()
+            await self._queue.put(response)
 
-    def close(self):
-        self._running = False
-        LOG.debug('Closing %s', self)
-        if self.retransmission:
-            self.retransmission.cancel()
-            self.retransmission = None
+        elif self.state in (State.Calling, State.Proceeding):
+            self.state = State.Completed
+            self.ack()
 
-    async def _timer(self, timeout=0.5):
-        max_timeout = timeout * 64
-        while timeout <= max_timeout:
-            self.dialog.peer.send_message(self.original_msg)
-            await asyncio.sleep(timeout)
-            timeout *= 2
+            async def _timer_d():
+                await asyncio.wait(TIMER_D)
+                self.state = State.Terminated
 
-        self._error(asyncio.TimeoutError('SIP timer expired for {cseq}, {method}, {call_id}'.format(
-            cseq=self.original_msg.cseq,
-            method=self.original_msg.method,
-            call_id=self.original_msg.headers['Call-ID']
-        )))
+            asyncio.ensure_future(_timer_d())
 
-    def _handle_authenticate(self, msg):
-        if self.authentification is not None:
-            return
-
-        if self.dialog.password is None:
-            raise ValueError('Password required for authentication')
-
-        if msg.method.upper() == 'REGISTER':
-            self.attempts -= 1
-            if self.attempts < 1:
-                self._error(AuthentificationFailed('Too many unauthorized attempts!'))
-                return
-            username = msg.to_details['uri']['user']
-        elif msg.method.upper() == 'INVITE':
-            self.attempts -= 1
-            if self.attempts < 1:
-                self._error(AuthentificationFailed('Too many unauthorized attempts!'))
-                return
-            username = msg.from_details['uri']['user']
-        else:
-            username = msg.from_details['uri']['user']
-
-        self.original_msg.cseq += 1
-        self.original_msg.headers['Authorization'] = str(Auth.from_authenticate_header(
-            authenticate=msg.headers['WWW-Authenticate'],
-            method=msg.method,
-            uri=msg.to_details['uri'].short_uri(),
-            username=username,
-            password=self.dialog.password)
-        )
-
-        self.dialog.transactions[self.original_msg.method][self.original_msg.cseq] = self
-        self.authentification = asyncio.ensure_future(self._timer())
-
-    def _handle_proxy_authenticate(self, msg):
-        self._handle_proxy_authenticate(msg)
-        self.original_msg = self.original_msg.pop(msg.cseq)
-        del (self.original_msg.headers['CSeq'])
-        self.original_msg.headers['Proxy-Authorization'] = str(Auth.from_authenticate_header(
-            authenticate=msg.headers['Proxy-Authenticate'],
-            method=msg.method,
-            uri=str(self.to_details),
-            username=self.to_details['uri']['user'],
-            password=self.dialog.password))
-        self.dialog.send_message(msg.method,
-                                 headers=self.original_msg.headers,
-                                 payload=self.original_msg.payload,
-                                 future=self.futrue)
-
-    def __repr__(self):
-        return '<{0} cseq={1}, method={2}, dialog={3}>'.format(
-            self.__class__.__name__, self.original_msg.cseq, self.original_msg.method, self.dialog
-        )
+    def ack(self):
+        pass
 
 
-class FutureTransaction(BaseTransaction):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._future = self.loop.create_future()
-
+class InviteServerTransaction(Transaction):
     async def start(self):
-        self.retransmission = asyncio.ensure_future(self._timer())
-        return await self._future
+        self.state = State.Proceeding
+        self.send_response(100, "Trying")
+        # ... notify the user application
 
-    def _incoming(self, msg):
-        super()._incoming(msg)
-        if msg.method == 'ACK':
-            self._result(msg)
-        elif msg.status_code == 401 and 'WWW-Authenticate' in msg.headers:
-            self._handle_authenticate(msg)
-            return
-        elif msg.status_code == 407:  # Proxy authentication
-            self._handle_proxy_authenticate(msg)
-            return
-        elif self.original_msg.method.upper() == 'INVITE' and msg.status_code == 200:
-            self.dialog.ack(msg)
-            self._result(msg)
-        elif 100 <= msg.status_code < 200:
-            pass
+    def receive_request(self, request):
+        # TODO: store the full original request
+        if request.method == self.message.method:
+            if self.state in (State.Proceeding, State.Completed):
+                # retransmit last response
+                pass
+        elif request.method == 'ACK':
+            if self.state == State.Completed:
+                # self.state = State.Confirmed
+                # Start task with TIMER_I to then flip to State.Terminated
+                pass
+            elif self.state == State.Confirmed:
+                # Ignore ACKs
+                pass
+
+    def send(self, response):
+        if (100 <= response.status_code < 200
+                and self.state == State.Proceeding):
+            pass  # TODO: send
+
+        elif (response.status_code == 200 and self.state in State.Proceeding):
+            self.state = State.Terminated
+            pass  # TODO: send
+
         else:
-            self._result(msg)
-
-    def _error(self, error):
-        self._future.set_exception(error)
-        self.dialog.end_transaction(self)
-
-    def _result(self, msg):
-        if self.authentification:
-            self.authentification.cancel()
-            self.authentification = None
-        self._future.set_result(msg)
-        self.dialog.end_transaction(self)
-
-    def close(self):
-        if self._running:
-            super().close()
-            if not self._future.done():
-                self._future.cancel()
+            self.state = State.Completed
+            # Failure. TODO: log
+            # Start TIMER_G, abandon retransmissions
 
 
-class UnreliableTransaction(FutureTransaction):
-    def close(self):
-        if self._running and not self._future.done():
-                self.dialog.cancel(cseq=self.original_msg.cseq)
-        super().close()
+class ClientTransaction(Transaction):
+    async def start(self):
+        self.state = State.Trying
+
+        async def start_transaction():
+            timeout = TIMER_E
+            try:
+                with async_timeout.timeout(TIMER_F):
+                    while self.state == State.Trying:
+                        self.peer.send_message(self.message)
+                        await asyncio.sleep(timeout)
+                        timeout = min(timeout * 2, T2)
+            except asyncio.TimeoutError as err:
+                self.set_exception(err)
+
+        self.task = asyncio.ensure_future(start_transaction())
+
+    def received_response(self, response):
+        if (100 <= response.status_code < 200
+                and self.state in (State.Trying, State.Proceeding)):
+            self.state = State.Proceeding
+            # ... report
+        else:
+            self.state = State.Completed
+            # ... report
+
+
+class ServerTransaction(Transaction):
+    async def start(self):
+        self.state = State.Trying
+
+    def received_request(self, request):
+        # Likely catching retransmissions
+        if self.method == self.message.method:
+            if self.state in (State.Proceeding, State.Completed):
+                # TODO: retransmit last response
+                pass
+            elif self.state == State.Trying:
+                # ignore
+                pass
+
+    def send_response(self, response):
+        if (100 <= response.status_code < 200
+                and self.state in (State.Trying, State.Proceeding)):
+            self.state = State.Proceeding
+        else:
+            self.state = State.Completed
+
+        self.peer.send_message(response)
+
+
+async def start_client_transaction(app, message, peer):
+    cls = InviteClientTransaction if message.method == 'INVITE' else ClientTransaction
+    transaction = cls(message, peer)
+    app._transactions[(transaction.branch, message.method)] = transaction
+    await transaction.start()
+    return transaction
+
+
+async def start_server_transaction(message, peer):
+    cls = InviteServerTransaction if message.method == 'INVITE' else ServerTransaction
+    transaction = cls(message, peer)
+    await transaction.start()
+    return transaction
