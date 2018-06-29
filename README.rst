@@ -39,4 +39,3 @@ Missing features
 
 * Documentation
 * unit tests
-* SDP support
