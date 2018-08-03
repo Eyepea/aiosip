@@ -241,7 +241,7 @@ class DialogBase:
     async def __aexit__(self, *exc_info):
         await self.close()
 
-    async def __aiter__(self):
+    def __aiter__(self):
         return self
 
     async def __anext__(self):
