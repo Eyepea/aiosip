@@ -13,8 +13,8 @@ async def test_notify(test_server, protocol, loop, from_details, to_details, clo
             await super().resolve(*args, **kwargs)
             return self.subscribe
 
-        async def subscribe(self, request, msg):
-            expires = int(msg.headers['Expires'])
+        async def subscribe(self, request):
+            expires = int(request.headers['Expires'])
             dialog = await request.prepare(status_code=200, headers={'Expires': expires})
             await asyncio.sleep(0.1)
 
@@ -67,12 +67,9 @@ async def test_authentication(test_server, protocol, loop, from_details, to_deta
             await super().resolve(*args, **kwargs)
             return self.subscribe
 
-        async def subscribe(self, request, message):
-            dialog = request._create_dialog()
-
-            received_messages.append(message)
-            assert not dialog.validate_auth(message, password)
-            await dialog.unauthorized(message)
+        async def subscribe(self, request):
+            received_messages.append(request)
+            dialog = await request.unauthorized()
 
             async for message in dialog:
                 received_messages.append(message)
@@ -117,11 +114,9 @@ async def test_authentication_rejection(test_server, protocol, loop, from_detail
             await super().resolve(*args, **kwargs)
             return self.subscribe
 
-        async def subscribe(self, request, message):
-            dialog = request._create_dialog()
-
-            received_messages.append(message)
-            await dialog.unauthorized(message)
+        async def subscribe(self, request):
+            received_messages.append(request)
+            dialog = await request.unauthorized()
 
             async for message in dialog:
                 received_messages.append(message)
@@ -169,12 +164,12 @@ async def test_invite(test_server, protocol, loop, from_details, to_details, clo
             await super().resolve(*args, **kwargs)
             return self.invite
 
-        async def invite(self, request, message):
+        async def invite(self, request):
             dialog = await request.prepare(status_code=100)
             await asyncio.sleep(0.1)
-            await dialog.reply(message, status_code=180)
+            await dialog.reply(request.message, status_code=180)
             await asyncio.sleep(0.1)
-            await dialog.reply(message, status_code=200)
+            await dialog.reply(request.message, status_code=200)
             call_established.set_result(None)
 
             async for message in dialog:
@@ -230,11 +225,11 @@ async def test_cancel(test_server, protocol, loop, from_details, to_details, clo
             elif kwargs['method'] == 'CANCEL':
                 return self.cancel
 
-        async def subscribe(self, request, message):
+        async def subscribe(self, request):
             pending_subscription.cancel()
 
-        async def cancel(self, request, message):
-            cancel_future.set_result(message)
+        async def cancel(self, request):
+            cancel_future.set_result(request)
 
     app = aiosip.Application(loop=loop)
     server_app = aiosip.Application(loop=loop, dialplan=Dialplan())

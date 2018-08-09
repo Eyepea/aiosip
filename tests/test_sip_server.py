@@ -11,9 +11,9 @@ async def test_subscribe(test_server, protocol, loop, from_details, to_details, 
 
             return self.on_subscribe
 
-        async def on_subscribe(self, request, message):
+        async def on_subscribe(self, request):
             await request.prepare(status_code=200)
-            callback_complete.set_result(message)
+            callback_complete.set_result(request)
 
     app = aiosip.Application(loop=loop)
 
@@ -77,7 +77,7 @@ async def test_exception_in_handler(test_server, protocol, loop, from_details, t
 
             return self.on_subscribe
 
-        async def on_subscribe(self, request, message):
+        async def on_subscribe(self, request):
             raise RuntimeError('Test error')
 
     app = aiosip.Application(loop=loop)
