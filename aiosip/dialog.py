@@ -36,7 +36,8 @@ class DialogBase:
                  payload=None,
                  password=None,
                  cseq=0,
-                 inbound=False):
+                 inbound=False,
+                 middlewares=None):
 
         self.app = app
         self.from_details = from_details
@@ -48,6 +49,7 @@ class DialogBase:
         self.cseq = cseq
         self.inbound = inbound
         self.transactions = defaultdict(dict)
+        self._middlewares = middlewares or list()
 
         # TODO: Needs to be last because we need the above attributes set
         self.original_msg = self._prepare_request(method, headers=headers, payload=payload)
@@ -323,7 +325,16 @@ class Dialog(DialogBase):
         self.peer.send_message(cancel)
 
     async def recv(self):
-        return await self._incoming.get()
+        while not self._closed:
+            msg = await self._incoming.get()
+            for middleware in self._middlewares:
+                if msg:
+                    msg = await middleware(msg, self)
+                else:
+                    break
+
+            if msg:
+                return msg
 
 
 class InviteDialog(DialogBase):
