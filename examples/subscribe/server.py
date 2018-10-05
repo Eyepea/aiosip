@@ -6,11 +6,6 @@ import itertools
 import aiosip
 
 sip_config = {
-    'srv_host': 'xxxxxx',
-    'srv_port': '7000',
-    'realm': 'XXXXXX',
-    'user': 'YYYYYY',
-    'pwd': 'ZZZZZZ',
     'local_ip': '127.0.0.1',
     'local_port': 6000
 }

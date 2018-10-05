@@ -9,7 +9,7 @@ import aiosip
 sip_config = {
     'srv_host': '127.0.0.1',
     'srv_port': 6000,
-    'realm': 'XXXXXX',
+    'realm': 'example.net',
     'user': 'subscriber',
     'pwd': 'hunter2',
     'local_host': '127.0.0.1',
