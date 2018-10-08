@@ -116,7 +116,7 @@ class DialogBase:
     def ack(self, msg, headers=None, *args, **kwargs):
         headers = CIMultiDict(headers or {})
 
-        headers['Via'] = msg.headers['Via']
+        headers['Via'] = self.peer.generate_via_headers()
         ack = self._prepare_request('ACK', cseq=msg.cseq, to_details=msg.to_details, headers=headers, *args, **kwargs)
         self.peer.send_message(ack)
 
@@ -356,15 +356,14 @@ class InviteDialog(DialogBase):
 
     async def receive_message(self, msg):  # noqa: C901
 
-        if 'tag' not in self.to_details['params']:
-            del self.app._dialogs[self.dialog_id]
-            self.to_details['params']['tag'] = msg.to_details['params']['tag']
-            self.app._dialogs[self.dialog_id] = self
-
         async def set_result(msg):
             self.ack(msg)
             if not self._waiter.done():
                 self._waiter.set_result(msg)
+
+            transaction = self.transactions[msg.method][msg.cseq]
+            if not transaction._future.done():
+                transaction._future.set_result(self)
 
         async def handle_calling_state(msg):
             if 100 <= msg.status_code < 200:
@@ -397,6 +396,23 @@ class InviteDialog(DialogBase):
 
         await self._queue.put(msg)
 
+        if isinstance(msg, Response):
+            transaction = self.transactions[msg.method][msg.cseq]
+            if transaction.retransmission and not transaction.retransmission.done():
+                transaction.retransmission.cancel()
+            if transaction.authentification and not transaction.authentification.done():
+                transaction.authentification.cancel()
+
+            if msg.status_code == 401:
+                transaction = self.transactions[msg.method][msg.cseq]
+                transaction._incoming(msg)
+                return
+
+        if 'tag' not in self.to_details['params'] and 'tag' in msg.to_details['params']:
+            del self.app._dialogs[self.dialog_id]
+            self.to_details['params']['tag'] = msg.to_details['params']['tag']
+            self.app._dialogs[self.dialog_id] = self
+
         # TODO: sip timers and flip to Terminated after timeout
         if self._state == CallState.Calling:
             await handle_calling_state(msg)
@@ -425,10 +441,10 @@ class InviteDialog(DialogBase):
     @property
     def state(self):
         return self._state
-
-    async def start(self, *, expires=None):
-        # TODO: this is a hack
-        self.peer.send_message(self.original_msg)
+    #
+    # async def start(self, *, expires=None):
+    #     # TODO: this is a hack
+    #     self.peer.send_message(self.original_msg)
 
     async def recv(self):
         return await self._queue.get()

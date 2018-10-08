@@ -39,7 +39,7 @@ class Application(MutableMapping):
                  defaults=None,
                  debug=False,
                  dialplan=BaseDialplan(),
-                 dns_resolver=aiodns.DNSResolver()
+                 dns_resolver=None
                  ):
 
         if loop is None:
@@ -49,6 +49,9 @@ class Application(MutableMapping):
             self.defaults = {**DEFAULTS, **defaults}
         else:
             self.defaults = DEFAULTS
+
+        if not dns_resolver:
+            dns_resolver = aiodns.DNSResolver()
 
         self.debug = debug
         self.dns = dns_resolver
