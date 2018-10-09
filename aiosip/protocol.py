@@ -8,8 +8,8 @@ LOG = logging.getLogger(__name__)
 
 
 class UDP(asyncio.DatagramProtocol):
-    def __init__(self, app, loop):
-        self.app = app
+    def __init__(self, peer, loop):
+        self.peer = peer
         self.via = 'UDP'
         self.loop = loop
         self.transport = None
@@ -25,7 +25,7 @@ class UDP(asyncio.DatagramProtocol):
         self.transport.sendto(msg.encode(), addr)
 
     def connection_lost(self, error):
-        self.app._connection_lost(self)
+        self.peer._connection_lost(self)
 
     def connection_made(self, transport):
         self.transport = transport
@@ -39,7 +39,7 @@ class UDP(asyncio.DatagramProtocol):
         msg = message.Message.from_raw_headers(headers)
         msg._raw_payload = data
         LOG.log(5, 'Received from "%s" via UDP: "%s"', addr, msg)
-        asyncio.ensure_future(self.app._dispatch(self, msg, addr))
+        asyncio.ensure_future(self.peer._dispatch(self, msg, addr))
 
 
 class TCP(asyncio.Protocol):

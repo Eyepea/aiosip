@@ -1,3 +1,4 @@
+import sys
 import enum
 import asyncio
 import logging
@@ -6,7 +7,7 @@ from multidict import CIMultiDict
 from collections import defaultdict
 from async_timeout import timeout as Timeout
 
-from . import utils
+from . import utils, __version__
 from .auth import AuthenticateAuth, AuthorizationAuth
 from .message import Request, Response
 from .transaction import UnreliableTransaction
@@ -24,7 +25,6 @@ class CallState(enum.Enum):
 
 class DialogBase:
     def __init__(self,
-                 app,
                  method,
                  from_details,
                  to_details,
@@ -38,7 +38,6 @@ class DialogBase:
                  cseq=0,
                  inbound=False):
 
-        self.app = app
         self.from_details = from_details
         self.to_details = to_details
         self.contact_details = contact_details
@@ -65,9 +64,7 @@ class DialogBase:
     def _receive_response(self, msg):
 
         if 'tag' not in self.to_details['params']:
-            del self.app._dialogs[self.dialog_id]
             self.to_details['params']['tag'] = msg.to_details['params']['tag']
-            self.app._dialogs[self.dialog_id] = self
 
         try:
             transaction = self.transactions[msg.method][msg.cseq]
@@ -90,7 +87,8 @@ class DialogBase:
         headers = CIMultiDict(headers or {})
 
         if 'User-Agent' not in headers:
-            headers['User-Agent'] = self.app.defaults['user_agent']
+            # headers['User-Agent'] = self.app.defaults['user_agent']
+            headers["User-Agent"] = 'Python/{0[0]}.{0[1]}.{0[2]} aiosip/{1}'.format(sys.version_info, __version__),
 
         headers['Call-ID'] = self.call_id
 
@@ -150,7 +148,7 @@ class DialogBase:
 
     def close_later(self, delay=None):
         if delay is None:
-            delay = self.app.defaults['dialog_closing_delay']
+            delay = 30
         if self._closing:
             self._closing.cancel()
 
@@ -180,11 +178,6 @@ class DialogBase:
             for transaction in transactions.values():
                 transaction.close()
 
-        # Should not be necessary once dialog are correctly tracked
-        try:
-            del self.app._dialogs[self.dialog_id]
-        except KeyError as e:
-            pass
 
     def _connection_lost(self):
         for transactions in self.transactions.values():
@@ -192,7 +185,7 @@ class DialogBase:
                 transaction._error(ConnectionError)
 
     async def start_unreliable_transaction(self, msg, method=None):
-        transaction = UnreliableTransaction(self, original_msg=msg, loop=self.app.loop)
+        transaction = UnreliableTransaction(self, original_msg=msg)
         self.transactions[method or msg.method][msg.cseq] = transaction
         return await transaction.start()
 
@@ -228,7 +221,7 @@ class DialogBase:
         headers = CIMultiDict(headers or {})
 
         if 'User-Agent' not in headers:
-            headers['User-Agent'] = self.app.defaults['user_agent']
+            headers['User-Agent'] = 'Python/{0[0]}.{0[1]}.{0[2]} aiosip/{1}'.format(sys.version_info, __version__),
 
         headers['Call-ID'] = self.call_id
         headers['Via'] = request.headers['Via']
@@ -282,17 +275,6 @@ class Dialog(DialogBase):
             return await self._receive_request(msg)
 
     async def _receive_request(self, msg):
-
-        if 'tag' in msg.to_details['params']:
-            try:
-                del self.app._dialogs[
-                    frozenset((self.original_msg.to_details['params'].get('tag'),
-                               None,
-                               self.call_id))
-                ]
-            except KeyError:
-                pass
-
         await self._incoming.put(msg)
         self._maybe_close(msg)
 
@@ -355,11 +337,6 @@ class InviteDialog(DialogBase):
         self._waiter = asyncio.Future()
 
     async def receive_message(self, msg):  # noqa: C901
-
-        if 'tag' not in self.to_details['params']:
-            del self.app._dialogs[self.dialog_id]
-            self.to_details['params']['tag'] = msg.to_details['params']['tag']
-            self.app._dialogs[self.dialog_id] = self
 
         async def set_result(msg):
             self.ack(msg)
@@ -464,7 +441,7 @@ class InviteDialog(DialogBase):
                 msg = self._prepare_request('CANCEL')
 
             if msg:
-                transaction = UnreliableTransaction(self, original_msg=msg, loop=self.app.loop)
+                transaction = UnreliableTransaction(self, original_msg=msg)
                 self.transactions[msg.method][msg.cseq] = transaction
 
                 try:

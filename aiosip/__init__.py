@@ -11,3 +11,4 @@ from .protocol import *
 from .application import *
 from .exceptions import *
 from .dialplan import *
+from . import client

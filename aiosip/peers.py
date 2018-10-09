@@ -3,6 +3,7 @@ import asyncio
 import logging
 import ipaddress
 import websockets
+import aiodns
 
 from multidict import CIMultiDict
 
@@ -173,13 +174,13 @@ class Peer:
 
 
 class BaseConnector:
-    def __init__(self, app, *, loop=None):
-        self._app = app
+    def __init__(self, *, loop=None, dns_resolver=None):
         self._loop = loop or asyncio.get_event_loop()
 
         self._protocols = {}
         self._peers = {}
         self._servers = {}
+        self._dns_resolver = dns_resolver or aiodns.DNSResolver()
 
     async def create_server(self, local_addr, sock, **kwargs):
         return await self._create_server(local_addr, sock, **kwargs)
@@ -190,7 +191,7 @@ class BaseConnector:
         try:
             peer_addr = ipaddress.ip_address(peer_addr[0]).exploded, peer_addr[1]
         except ValueError:
-            dns = await self._app.dns.query(peer_addr[0], 'A')
+            dns = await self._dns_resolver.query(peer_addr[0], 'A')
             peer_addr = dns[0].host, peer_addr[1]
 
         if reuse_peer:
@@ -309,12 +310,12 @@ class UDPServer:
 
 
 class UDPConnector(BaseConnector):
-    async def _create_connection(self, peer_addr, local_addr):
+    async def _create_connection(self, peer, peer_addr, local_addr):
         try:
             return self._protocols[(peer_addr, local_addr)]
         except KeyError:
             transport, proto = await self._loop.create_datagram_endpoint(
-                lambda: UDP(app=self._app, loop=self._loop),
+                lambda: UDP(peer=peer, loop=self._loop),
                 local_addr=local_addr,
                 remote_addr=peer_addr
             )
