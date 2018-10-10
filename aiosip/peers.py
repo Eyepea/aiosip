@@ -250,6 +250,15 @@ class BaseConnector:
             await server.wait_closed()
         self._servers = {}
 
+    async def clean_address(self, addr):
+        try:
+            addr = ipaddress.ip_address(addr).exploded
+        except ValueError:
+            dns = await self._dns_resolver.query(addr, 'A')
+            addr = dns[0].host
+
+        return addr
+
     async def _create_server(self, local_addr, sock, **kwargs):
         raise NotImplementedError()
 
@@ -272,12 +281,14 @@ class TCPConnector(BaseConnector):
         self._servers[local_addr] = server
         return server
 
-    async def _create_connection(self, peer_addr, local_addr, ssl=None):
+    async def _create_connection(self, peer, peer_addr, local_addr, ssl=None):
+        peer_addr = await self.clean_address(peer_addr[0]), peer_addr[1]
+
         try:
             return self._protocols[(peer_addr, local_addr)]
         except KeyError:
             transport, proto = await self._loop.create_connection(
-                lambda: TCP(app=self._app, loop=self._loop),
+                lambda: TCP(peer=peer, loop=self._loop),
                 host=peer_addr[0],
                 port=peer_addr[1],
                 local_addr=local_addr,
@@ -285,7 +296,7 @@ class TCPConnector(BaseConnector):
             )
             local_addr = transport.get_extra_info('sockname')
             self._protocols[(peer_addr, local_addr)] = proto
-            return proto
+            return proto, peer_addr, local_addr
 
     async def _dispatch(self, protocol, _):
         peer_addr = protocol.transport.get_extra_info('peername')
@@ -311,6 +322,8 @@ class UDPServer:
 
 class UDPConnector(BaseConnector):
     async def _create_connection(self, peer, peer_addr, local_addr):
+        peer_addr = await self.clean_address(peer_addr[0]), peer_addr[1]
+
         try:
             return self._protocols[(peer_addr, local_addr)]
         except KeyError:
@@ -321,7 +334,7 @@ class UDPConnector(BaseConnector):
             )
             local_addr = transport.get_extra_info('sockname')
             self._protocols[(peer_addr, local_addr)] = proto
-            return proto, local_addr
+            return proto, peer_addr, local_addr
 
     async def _create_server(self, local_addr=None, sock=None):
         if sock and local_addr:

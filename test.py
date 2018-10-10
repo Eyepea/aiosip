@@ -1,11 +1,12 @@
+import os
 import time
 import aiosip
 import asyncio
 import logging
 import async_timeout
 
-FROM = 'sip:qd.{username}@qd.allocloud.com:16000'
-TO = 'sip:qd.{username}@qd.allocloud.com:16000'
+FROM = 'sip:{username}@{host}:{port}'
+TO = 'sip:{username}@{host}:{port}'
 
 SDP_INVITE = """v=0
 o=- 20000 20000 IN IP4 192.168.8.178
@@ -34,25 +35,48 @@ a=sendrecv"""
 
 async def main():
 
+    await subscribe(username=os.environ["SIP_USERNAME_1"], password=os.environ["SIP_PASSWORD_1"])
+
     await asyncio.gather(
-        peer1(username='w9g1pizf', password='WNbqOWR0GeqEWPHLbUw'),
-        peer2(username='5kztmikz', password='5zv02H8X3VbR5po6gW8'),
+        peer1(username=os.environ["SIP_USERNAME_1"], password=os.environ["SIP_PASSWORD_1"]),
+        peer2(username=os.environ["SIP_USERNAME_2"], password=os.environ["SIP_PASSWORD_2"]),
     )
+
+
+async def subscribe(username, password):
+    async with aiosip.client.Peer(
+        host=os.environ["SIP_HOST"],
+        port=int(os.environ["SIP_PORT"]),
+        protocol=aiosip.UDP
+    ) as peer:
+
+        async with peer.subscribe(
+            from_details=aiosip.Contact.from_header(
+                FROM.format(username=username, host=os.environ["SIP_HOST"], port=os.environ["SIP_PORT"])),
+            to_details=aiosip.Contact.from_header(
+                'sip:461@{host}:{port}'.format(host=os.environ["SIP_HOST"], port=os.environ["SIP_PORT"])),
+            password=password,
+            expires=10,
+            headers={"Event": "dialog", "Accept": "application/dialog-info+xml"}
+        ) as dialog:
+
+            async for message in dialog:
+                print(message)
 
 
 async def peer1(username, password):
     async with aiosip.client.Peer(
-        host='217.182.114.36',
-        port=10060,
-        protocol=aiosip.UDP
+        host=os.environ["SIP_HOST"],
+        port=int(os.environ["SIP_PORT"]),
+        protocol=aiosip.TCP
     ) as peer:
 
         peer.add_route('options', options)
         peer.add_route('notify', notify)
 
         async with peer.register(
-            from_details=aiosip.Contact.from_header(FROM.format(username=username)),
-            to_details=aiosip.Contact.from_header(TO.format(username=username)),
+            from_details=aiosip.Contact.from_header(FROM.format(username=username, host=os.environ["SIP_HOST"], port=os.environ["SIP_PORT"])),
+            to_details=aiosip.Contact.from_header(TO.format(username=username, host=os.environ["SIP_HOST"], port=os.environ["SIP_PORT"])),
             password=password,
             expires=10
         ):
@@ -61,8 +85,8 @@ async def peer1(username, password):
 
             start, end = None, None
             async for message in peer.invite(
-                from_details=aiosip.Contact.from_header(FROM.format(username=username)),
-                to_details=aiosip.Contact.from_header('sip:461@qd.allocloud.com:16000'),
+                from_details=aiosip.Contact.from_header(FROM.format(username=username, host=os.environ["SIP_HOST"], port=os.environ["SIP_PORT"])),
+                to_details=aiosip.Contact.from_header('sip:461@{host}:{port}'.format(host=os.environ["SIP_HOST"], port=os.environ["SIP_PORT"])),
                 password=password,
                 sdp=SDP_INVITE
             ):
@@ -77,8 +101,8 @@ async def peer1(username, password):
 
 async def peer2(username, password):
     async with aiosip.client.Peer(
-        host='217.182.114.36',
-        port=10060,
+        host=os.environ["SIP_HOST"],
+        port=int(os.environ["SIP_PORT"]),
         protocol=aiosip.UDP
     ) as peer:
 
@@ -89,8 +113,10 @@ async def peer2(username, password):
         peer.add_route('invite', invite)
 
         async with peer.register(
-            from_details=aiosip.Contact.from_header(FROM.format(username=username)),
-            to_details=aiosip.Contact.from_header(TO.format(username=username)),
+            from_details=aiosip.Contact.from_header(
+                FROM.format(username=username, host=os.environ["SIP_HOST"], port=os.environ["SIP_PORT"])),
+            to_details=aiosip.Contact.from_header(
+                TO.format(username=username, host=os.environ["SIP_HOST"], port=os.environ["SIP_PORT"])),
             password=password,
             expires=10
         ):

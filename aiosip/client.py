@@ -8,13 +8,18 @@ from collections import MutableMapping
 from contextlib import asynccontextmanager
 
 from . import exceptions, utils
-from .protocol import UDP
+from .protocol import UDP, TCP
 from .dialog import Dialog as Dialog
 from .contact import Contact
-from .peers import UDPConnector
+from .peers import UDPConnector, TCPConnector
 from .message import Response, Request
 
 LOG = logging.getLogger(__name__)
+
+CONNECTOR = {
+    UDP: UDPConnector,
+    TCP: TCPConnector
+}
 
 
 class Peer(MutableMapping):
@@ -36,9 +41,12 @@ class Peer(MutableMapping):
         self._protocol.send_message(msg, addr=self._addr)
 
     async def connect(self):
-        connector = UDPConnector()
-        self._protocol, self._local_addr = await connector._create_connection(peer=self, peer_addr=self._addr,
-                                                                              local_addr=self._local_addr)
+        connector = CONNECTOR[self._proto_type]()
+        self._protocol, self._addr, self._local_addr = await connector._create_connection(
+            peer=self,
+            peer_addr=self._addr,
+            local_addr=self._local_addr
+        )
 
     def _create_dialog(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
                        headers=None, payload=None, cseq=0, inbound=False, dialog_factory=Dialog, **kwargs):
@@ -141,6 +149,8 @@ class Peer(MutableMapping):
                 expires = int(message.headers["Expires"])
                 cseq = message.cseq
                 break
+            else:
+                raise exceptions.RegisterFailed(message)
 
         registration = asyncio.create_task(self._keep_registration(expires=expires, headers=headers, to_details=to_details, from_details=from_details, cseq=cseq, call_id=call_id, **kwargs))
 
@@ -167,6 +177,8 @@ class Peer(MutableMapping):
                         expires = int(message.headers["Expires"])
                         cseq = message.cseq
                         break
+                    else:
+                        raise exceptions.RegisterFailed(message)
 
                 await asyncio.sleep(expires / 2)
         except asyncio.CancelledError:
@@ -187,10 +199,43 @@ class Peer(MutableMapping):
         except Exception:
             LOG.error("Unable to maintain registration for peer: %s", self)
 
-    async def subscribe(self, *args, **kwargs):
-        dialog = await self.request('SUBSCRIBE', *args, **kwargs)
+    @asynccontextmanager
+    async def subscribe(self, *args, expires=120, headers=None, **kwargs):
+        if headers:
+            headers["Expires"] = expires
+        else:
+            headers = {"Expires": expires}
+
+        dialog = await self.request('SUBSCRIBE', *args, headers=headers, **kwargs)
         async for message in dialog:
-            yield message
+            if isinstance(message, Response) and message.status_code == 200:
+                expires = int(message.headers["Expires"])
+                break
+            else:
+                raise exceptions.SubscriptionFailed(message)
+
+        subscription = asyncio.create_task(self._keep_subscription(dialog, expires=expires, headers=headers))
+
+        yield dialog
+
+        subscription.cancel()
+        await subscription
+
+    async def _keep_subscription(self, dialog, expires, headers):
+        try:
+            await asyncio.sleep(expires)
+            while True:
+                response = await dialog.request("SUBSCRIBE", headers=headers)
+                if response.status_code != 200:
+                    raise exceptions.SubscriptionFailed(response)
+                expires = int(response.headers["Expires"])
+                await asyncio.sleep(expires / 2)
+        except asyncio.CancelledError:
+            async with timeout(10):
+                headers["Expires"] = 0
+                await dialog.request("SUBSCRIBE", headers=headers)
+        except Exception:
+            LOG.error("Unable to maintain subscription for peer: %s", self)
 
     async def invite(self, *args, sdp=None, headers=None, payload=None, **kwargs):
         if sdp and payload:

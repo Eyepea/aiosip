@@ -43,8 +43,8 @@ class UDP(asyncio.DatagramProtocol):
 
 
 class TCP(asyncio.Protocol):
-    def __init__(self, app, loop):
-        self.app = app
+    def __init__(self, peer, loop):
+        self.peer = peer
         self.via = 'TCP'
         self.loop = loop
         self.transport = None
@@ -61,7 +61,7 @@ class TCP(asyncio.Protocol):
         self.transport.write(msg.encode())
 
     def connection_lost(self, error):
-        self.app._connection_lost(self)
+        self.peer._connection_lost(self)
 
     def connection_made(self, transport):
         peer = transport.get_extra_info('peername')
@@ -82,7 +82,7 @@ class TCP(asyncio.Protocol):
             msg._raw_payload, self._data = self._data[:content_length], self._data[content_length:]
             # assert len(msg._raw_payload) == int(msg.headers['Content-Length'])
             LOG.log(5, 'Received via TCP: "%s"', msg)
-            asyncio.ensure_future(self.app._dispatch(self, msg, None))
+            asyncio.ensure_future(self.peer._dispatch(self, msg, None))
 
 
 class WS:

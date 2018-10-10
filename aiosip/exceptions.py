@@ -21,3 +21,7 @@ class InviteFailed(AiosipException):
 
 class InviteOngoing(AiosipException):
     pass
+
+
+class SubscriptionFailed(AiosipException):
+    pass
