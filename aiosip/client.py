@@ -2,17 +2,22 @@ import uuid
 import asyncio
 import logging
 
+from copy import deepcopy
+from async_timeout import timeout
+from collections import MutableMapping
+from contextlib import asynccontextmanager
+
 from . import exceptions, utils
 from .protocol import UDP
-from .dialog import Dialog as OldDialog
+from .dialog import Dialog as Dialog
 from .contact import Contact
 from .peers import UDPConnector
-from .message import Response
+from .message import Response, Request
 
 LOG = logging.getLogger(__name__)
 
 
-class Peer:
+class Peer(MutableMapping):
     def __init__(self, host, port, protocol=UDP, local_addr=None):
         self._addr = (host, port)
         self._proto_type = protocol
@@ -21,6 +26,19 @@ class Peer:
         self._connected = False
         self._disconected = asyncio.Future()
         self._local_addr = local_addr
+        self._routes = dict()
+        self._state = dict()
+
+    def add_route(self, method, callback):
+        self._routes[method.lower()] = callback
+
+    def send_message(self, msg):
+        self._protocol.send_message(msg, addr=self._addr)
+
+    async def connect(self):
+        connector = UDPConnector()
+        self._protocol, self._local_addr = await connector._create_connection(peer=self, peer_addr=self._addr,
+                                                                              local_addr=self._local_addr)
 
     def _create_dialog(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
                        headers=None, payload=None, cseq=0, inbound=False, dialog_factory=Dialog, **kwargs):
@@ -90,10 +108,7 @@ class Peer:
                                      **kwargs)
 
         try:
-            response = await dialog.start(timeout=timeout)
-            dialog.response = response
-            dialog.status_code = response.status_code
-            dialog.status_message = response.status_message
+            await dialog.start(timeout=timeout)
             return dialog
         except asyncio.CancelledError:
             dialog.cancel()
@@ -102,17 +117,112 @@ class Peer:
             await dialog.close(fast=True)
             raise
 
-    async def register(self, *args, **kwargs):
-        dialog = await self.request('REGISTER', *args, **kwargs)
-        return dialog
+    @asynccontextmanager
+    async def register(self, to_details, from_details, expires=120, headers=None, **kwargs):
+        if headers:
+            headers["Expires"] = expires
+        else:
+            headers = {"Expires": expires}
 
-    async def connect(self):
-        connector = UDPConnector()
-        self._protocol = await connector._create_connection(peer=self, peer_addr=self._addr, local_addr=self._local_addr)
+        cseq = 1
+        call_id = str(uuid.uuid4())
 
-    def _connection_lost(self, protocol):
-        self._disconected.set_result(True)
+        dialog = await self.request(
+            method='REGISTER',
+            headers=deepcopy(headers),
+            call_id=call_id,
+            cseq=cseq,
+            to_details=deepcopy(to_details),
+            from_details=deepcopy(from_details),
+            **kwargs,
+        )
+        async for message in dialog:
+            if isinstance(message, Response) and message.status_code == 200:
+                expires = int(message.headers["Expires"])
+                cseq = message.cseq
+                break
 
+        registration = asyncio.create_task(self._keep_registration(expires=expires, headers=headers, to_details=to_details, from_details=from_details, cseq=cseq, call_id=call_id, **kwargs))
+
+        yield
+
+        registration.cancel()
+        await registration
+
+    async def _keep_registration(self, expires, headers, to_details, from_details, cseq, call_id, **kwargs):
+        try:
+            await asyncio.sleep(expires)
+            while True:
+                dialog = await self.request(
+                    method='REGISTER',
+                    headers=deepcopy(headers),
+                    call_id=call_id,
+                    cseq=cseq,
+                    to_details=deepcopy(to_details),
+                    from_details=deepcopy(from_details),
+                    **kwargs,
+                )
+                async for message in dialog:
+                    if isinstance(message, Response) and message.status_code == 200:
+                        expires = int(message.headers["Expires"])
+                        cseq = message.cseq
+                        break
+
+                await asyncio.sleep(expires / 2)
+        except asyncio.CancelledError:
+            async with timeout(10):
+                headers["Expires"] = 0
+                dialog = await self.request(
+                    method='REGISTER',
+                    headers=deepcopy(headers),
+                    call_id=call_id,
+                    cseq=cseq,
+                    to_details=deepcopy(to_details),
+                    from_details=deepcopy(from_details),
+                    **kwargs,
+                )
+                async for message in dialog:
+                    if isinstance(message, Response) and message.status_code == 200:
+                        break
+        except Exception:
+            LOG.error("Unable to maintain registration for peer: %s", self)
+
+    async def subscribe(self, *args, **kwargs):
+        dialog = await self.request('SUBSCRIBE', *args, **kwargs)
+        async for message in dialog:
+            yield message
+
+    async def invite(self, *args, sdp=None, headers=None, payload=None, **kwargs):
+        if sdp and payload:
+            raise TypeError("Only one of 'sdp', 'payload' should be set")
+        elif sdp:
+            payload = sdp
+            if headers:
+                headers["Content-Type"] = "application/sdp"
+            else:
+                headers = {"Content-Type": "application/sdp"}
+
+        dialog = await self.request('INVITE', *args, headers=headers, payload=payload, **kwargs)
+        async for message in dialog:
+            if isinstance(message, Response) and message.status_code == 200:
+                dialog.ack(message)
+                yield message
+            elif isinstance(message, Request) and message.method.upper() in ('BYE', 'CANCEL'):
+                await dialog.reply(message, status_code=200)
+                yield message
+                return
+            else:
+                yield message
+
+    #########
+    # Utils #
+    #########
+    def generate_via_headers(self, branch=utils.gen_branch()):
+        return f'SIP/2.0/{self._protocol.via} {self._local_addr[0]}:{self._local_addr[1]};branch={branch}'
+
+    #####################
+    # Incoming Messages #
+    #####################
     async def _dispatch(self, protocol, msg, addr):
         call_id = msg.headers['Call-ID']
         dialog = None
@@ -142,18 +252,53 @@ class Peer:
         await self._find_route(protocol, msg)
 
     async def _find_route(self, protocol, msg):
-        # LOG.error("Finding route for %s", msg)
-        pass
 
-    def send_message(self, msg):
-        self._protocol.send_message(msg, addr=self._addr)
+        dialog = self._create_dialog(
+            method=msg.method,
+            from_details=Contact.from_header(msg.headers["To"]),
+            to_details=Contact.from_header(msg.headers["From"]),
+            call_id=msg.headers["Call-ID"],
+            inbound=True)
 
-    async def close(self):
-        self._protocol.transport.close()
-        await self._disconected
+        dialog.original_msg = msg
 
+        route = self._routes.get(msg.method.lower())
+        if route:
+            await route(dialog)
+        else:
+            await dialog.reply(msg, status_code=501)
+            await dialog.close()
+
+    def _connection_lost(self, protocol):
+        self._disconected.set_result(True)
+
+    ###################
+    # Context Manager #
+    ###################
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.close()
+        self._protocol.transport.close()
+        await self._disconected
+
+    ######################
+    # MutableMapping API #
+    ######################
+    def __eq__(self, other):
+        return self is other
+
+    def __getitem__(self, key):
+        return self._state[key]
+
+    def __setitem__(self, key, value):
+        self._state[key] = value
+
+    def __delitem__(self, key):
+        del self._state[key]
+
+    def __len__(self):
+        return len(self._state)
+
+    def __iter__(self):
+        return iter(self._state)

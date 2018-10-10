@@ -10,7 +10,7 @@ from async_timeout import timeout as Timeout
 from . import utils, __version__
 from .auth import AuthenticateAuth, AuthorizationAuth
 from .message import Request, Response
-from .transaction import UnreliableTransaction
+from .transaction import Transaction
 
 
 LOG = logging.getLogger(__name__)
@@ -61,20 +61,25 @@ class DialogBase:
                           self.original_msg.from_details['params']['tag'],
                           self.call_id))
 
-    def _receive_response(self, msg):
+    async def _receive_response(self, msg):
 
-        if 'tag' not in self.to_details['params']:
+        if 'tag' not in self.to_details['params'] and msg.status_code not in (401, ) and 'tag' in msg.to_details['params']:
+            del self.peer._dialogs[self.dialog_id]
             self.to_details['params']['tag'] = msg.to_details['params']['tag']
+            self.peer._dialogs[self.dialog_id] = self
 
         try:
             transaction = self.transactions[msg.method][msg.cseq]
-            transaction._incoming(msg)
         except KeyError:
             if msg.method != 'ACK':
                 # TODO: Hack to suppress warning on ACK messages,
                 # since we don't quite handle them correctly. They're
                 # ignored, for now...
                 LOG.debug('Response without Request. The Transaction may already be closed. \n%s', msg)
+        else:
+            publish_message = transaction.incoming(msg)
+            if publish_message:
+                await self._incoming.put(msg)
 
     def _prepare_request(self, method, contact_details=None, headers=None, payload=None, cseq=None, to_details=None):
 
@@ -114,7 +119,10 @@ class DialogBase:
     def ack(self, msg, headers=None, *args, **kwargs):
         headers = CIMultiDict(headers or {})
 
-        headers['Via'] = msg.headers['Via']
+        if msg.status_code == 200:
+            headers['Via'] = self.peer.generate_via_headers()
+        else:
+            headers['Via'] = msg.headers['Via']
         ack = self._prepare_request('ACK', cseq=msg.cseq, to_details=msg.to_details, headers=headers, *args, **kwargs)
         self.peer.send_message(ack)
 
@@ -178,16 +186,16 @@ class DialogBase:
             for transaction in transactions.values():
                 transaction.close()
 
-
     def _connection_lost(self):
         for transactions in self.transactions.values():
             for transaction in transactions.values():
                 transaction._error(ConnectionError)
 
     async def start_unreliable_transaction(self, msg, method=None):
-        transaction = UnreliableTransaction(self, original_msg=msg)
+        transaction = Transaction(self, original_msg=msg)
         self.transactions[method or msg.method][msg.cseq] = transaction
-        return await transaction.start()
+        response = await transaction.start()
+        return response
 
     def end_transaction(self, transaction):
         to_delete = list()
@@ -270,9 +278,9 @@ class Dialog(DialogBase):
             self.cseq = msg.cseq
 
         if isinstance(msg, Response) or msg.method == 'ACK':
-            return self._receive_response(msg)
+            await self._receive_response(msg)
         else:
-            return await self._receive_request(msg)
+            await self._receive_request(msg)
 
     async def _receive_request(self, msg):
         await self._incoming.put(msg)
@@ -386,7 +394,7 @@ class InviteDialog(DialogBase):
 
         elif self._state == CallState.Terminated:
             if isinstance(msg, Response) or msg.method == 'ACK':
-                return self._receive_response(msg)
+                return await self._receive_response(msg)
             else:
                 return await self._receive_request(msg)
 
@@ -441,7 +449,7 @@ class InviteDialog(DialogBase):
                 msg = self._prepare_request('CANCEL')
 
             if msg:
-                transaction = UnreliableTransaction(self, original_msg=msg)
+                transaction = Transaction(self, original_msg=msg)
                 self.transactions[msg.method][msg.cseq] = transaction
 
                 try:

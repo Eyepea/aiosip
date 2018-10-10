@@ -321,7 +321,7 @@ class UDPConnector(BaseConnector):
             )
             local_addr = transport.get_extra_info('sockname')
             self._protocols[(peer_addr, local_addr)] = proto
-            return proto
+            return proto, local_addr
 
     async def _create_server(self, local_addr=None, sock=None):
         if sock and local_addr:
