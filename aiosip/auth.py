@@ -1,12 +1,23 @@
-import logging
-
-from hashlib import md5
 from collections import MutableMapping
+from enum import Enum
+from hashlib import md5
+import logging
 
 from . import utils
 
 
 LOG = logging.getLogger(__name__)
+
+
+class Algorithm(Enum):
+    MD5 = 'md5'
+    MD5Sess = 'md5-sess'
+
+
+class Directive(Enum):
+    Unspecified = ''
+    Auth = 'auth'
+    AuthInt = 'auth-int'
 
 
 def md5digest(*args):
@@ -78,35 +89,38 @@ class Auth(MutableMapping):
         return params
 
     def _calculate_response(self, password, payload, username=None, uri=None, cnonce=None, nonce_count=None):
+        if self.mode != 'Digest':
+            raise ValueError('Authentication method not supported')
+
+        algorithm = Algorithm(self.get('algorithm', 'md5').lower())
+        qop = Directive(self.get('qop', '').lower())
+
         if username is None:
             username = self['username']
         if uri is None:
             uri = self['uri']
-        if cnonce is None:
-            cnonce = self.get('cnonce')
-        if nonce_count is None:
-            nonce_count = self.get('nc')
 
-        if self.mode == 'Digest':
-            algorithm = self.get('algorithm', 'md5')
-            if algorithm == 'md5-sess':
-                ha1 = md5digest(md5digest(username, self['realm'], password), self['nonce'], cnonce)
-            else:
-                ha1 = md5digest(username, self['realm'], password)
+        ha1 = md5digest(username, self['realm'], password)
+        if algorithm is Algorithm.MD5Sess:
+            ha1 = md5digest(ha1, self['nonce'], cnonce or self['cnonce'])
 
-            qop = self.get('qop', '').lower()
-            if qop == 'auth-int':
-                ha2 = md5digest(self['method'], self['uri'], md5digest(payload))
-            else:
-                ha2 = md5digest(self['method'], uri)
-
-            if qop in ('auth', 'auth-int'):
-                response = md5digest(ha1, self['nonce'], nonce_count, cnonce, self['qop'], ha2)
-            else:
-                response = md5digest(ha1, self['nonce'], ha2)
-            return response
+        if qop is Directive.AuthInt:
+            ha2 = md5digest(self['method'], uri, md5digest(payload))
         else:
-            raise ValueError('Authentication method not supported')
+            ha2 = md5digest(self['method'], uri)
+
+        # If there's no quality of prootection specified, we can return early,
+        # our computation is much simpler
+        if qop is Directive.Unspecified:
+            return md5digest(ha1, self['nonce'], ha2)
+
+        return md5digest(
+            ha1,
+            self['nonce'],
+            nonce_count or self['nc'],
+            cnonce or self['cnonce'],
+            self['qop'],
+            ha2)
 
     # MutableMapping API
     def __eq__(self, other):
