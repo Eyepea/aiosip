@@ -282,7 +282,6 @@ class TCPConnector(BaseConnector):
         return server
 
     async def _create_connection(self, peer, peer_addr, local_addr, ssl=None):
-        peer_addr = await self.clean_address(peer_addr[0]), peer_addr[1]
 
         try:
             return self._protocols[(peer_addr, local_addr)]
@@ -296,6 +295,7 @@ class TCPConnector(BaseConnector):
             )
             local_addr = transport.get_extra_info('sockname')
             self._protocols[(peer_addr, local_addr)] = proto
+            peer_addr = await self.clean_address(peer_addr[0]), peer_addr[1]
             return proto, peer_addr, local_addr
 
     async def _dispatch(self, protocol, _):
