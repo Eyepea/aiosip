@@ -10,7 +10,7 @@ import traceback
 
 __all__ = ['Application']
 
-from collections import MutableMapping
+from collections.abc import MutableMapping
 
 from . import __version__
 from .dialog import Dialog

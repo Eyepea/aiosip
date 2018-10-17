@@ -2,7 +2,7 @@ import re
 import string
 import logging
 
-from collections import MutableMapping
+from collections.abc import MutableMapping
 
 from .param import Param
 from .uri import Uri
