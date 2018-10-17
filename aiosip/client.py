@@ -250,6 +250,7 @@ class Peer(MutableMapping):
 
         dialog = await self.request('INVITE', *args, headers=headers, payload=payload, **kwargs)
         async for message in dialog:
+            message.dialog = dialog
             if isinstance(message, Response) and message.status_code == 200:
                 dialog.ack(message)
                 yield message
