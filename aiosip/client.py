@@ -40,12 +40,13 @@ class Peer(MutableMapping):
     def send_message(self, msg):
         self._protocol.send_message(msg, addr=self._addr)
 
-    async def connect(self):
+    async def connect(self, **kwargs):
         connector = CONNECTOR[self._proto_type]()
         self._protocol, self._addr, self._local_addr = await connector._create_connection(
             peer=self,
             peer_addr=self._addr,
-            local_addr=self._local_addr
+            local_addr=self._local_addr,
+            **kwargs
         )
 
     def _create_dialog(self, method, from_details, to_details, contact_details=None, password=None, call_id=None,
