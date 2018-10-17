@@ -1,4 +1,4 @@
-from collections import MutableMapping
+from collections.abc import MutableMapping
 from enum import Enum
 from hashlib import md5
 import logging
