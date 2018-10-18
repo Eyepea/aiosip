@@ -326,8 +326,9 @@ class Peer(MutableMapping):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self._protocol.transport.close()
-        await self._disconected
+        if self._protocol:
+            self._protocol.transport.close()
+            await self._disconected
 
     ######################
     # MutableMapping API #
