@@ -162,7 +162,7 @@ class DialogBase:
 
         async def closure():
             await asyncio.sleep(delay)
-            await self.close()
+            await asyncio.shield(self.close())
 
         self._closing = asyncio.create_task(closure())
 
@@ -176,10 +176,11 @@ class DialogBase:
         else:
             self.close_later()
 
-    def _close(self):
+    async def _close(self):
         LOG.debug('Closing: %s', self)
-        if self._closing:
+        if self._closing and not self._closing.done():
             self._closing.cancel()
+            await self._closing
 
         for transactions in self.transactions.values():
             for transaction in transactions.values():
@@ -302,9 +303,9 @@ class Dialog(DialogBase):
                 try:
                     result = await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
                 finally:
-                    self._close()
+                    await self._close()
 
-            self._close()
+            await self._close()
             return result
 
     async def notify(self, *args, headers=None, **kwargs):
@@ -455,6 +456,6 @@ class InviteDialog(DialogBase):
                     async with Timeout(timeout):
                         await transaction.start()
                 finally:
-                    self._close()
+                    await self._close()
 
-        self._close()
+        await self._close()
