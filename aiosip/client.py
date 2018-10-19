@@ -151,8 +151,10 @@ class Peer(MutableMapping):
                 cseq = message.cseq
                 break
             else:
+                await dialog.close()
                 raise exceptions.RegisterFailed(message)
 
+        await dialog.close()
         registration = asyncio.create_task(self._keep_registration(expires=expires, headers=headers, to_details=to_details, from_details=from_details, cseq=cseq, call_id=call_id, **kwargs))
 
         yield
@@ -181,7 +183,9 @@ class Peer(MutableMapping):
                     else:
                         raise exceptions.RegisterFailed(message)
 
+                await dialog.close()
                 await asyncio.sleep(expires / 2)
+
         except asyncio.CancelledError:
             async with timeout(10):
                 headers["Expires"] = 0
@@ -197,6 +201,7 @@ class Peer(MutableMapping):
                 async for message in dialog:
                     if isinstance(message, Response) and message.status_code == 200:
                         break
+            await dialog.close()
         except Exception:
             LOG.error("Unable to maintain registration for peer: %s", self)
 
@@ -249,17 +254,20 @@ class Peer(MutableMapping):
                 headers = {"Content-Type": "application/sdp"}
 
         dialog = await self.request('INVITE', *args, headers=headers, payload=payload, **kwargs)
-        async for message in dialog:
-            message.dialog = dialog
-            if isinstance(message, Response) and message.status_code == 200:
-                dialog.ack(message)
-                yield message
-            elif isinstance(message, Request) and message.method.upper() in ('BYE', 'CANCEL'):
-                await dialog.reply(message, status_code=200)
-                yield message
-                return
-            else:
-                yield message
+        try:
+            async for message in dialog:
+                message.dialog = dialog
+                if isinstance(message, Response) and message.status_code == 200:
+                    dialog.ack(message)
+                    yield message
+                elif isinstance(message, Request) and message.method.upper() in ('BYE', 'CANCEL'):
+                    await dialog.reply(message, status_code=200)
+                    yield message
+                    return
+                else:
+                    yield message
+        finally:
+            await dialog.close()
 
     #########
     # Utils #

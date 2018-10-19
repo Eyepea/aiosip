@@ -167,7 +167,7 @@ class DialogBase:
 
         self._closing = asyncio.create_task(closure())
 
-    def _maybe_close(self, msg):
+    async def _maybe_close(self, msg):
         if msg.method in ('REGISTER', 'SUBSCRIBE') and not self.inbound:
             expire = int(msg.headers.get('Expires', 0))
             delay = int(expire * 1.1) if expire else None
