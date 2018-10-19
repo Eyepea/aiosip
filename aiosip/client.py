@@ -151,18 +151,17 @@ class Peer(MutableMapping):
                 cseq = message.cseq
                 break
             else:
-                await dialog.close()
+                await dialog.close(fast=True)
                 raise exceptions.RegisterFailed(message)
 
-        await dialog.close()
-        registration = asyncio.create_task(self._keep_registration(expires=expires, headers=headers, to_details=to_details, from_details=from_details, cseq=cseq, call_id=call_id, **kwargs))
+        registration = asyncio.create_task(self._keep_registration(dialog=dialog, expires=expires, headers=headers, to_details=to_details, from_details=from_details, cseq=cseq, call_id=call_id, **kwargs))
 
         yield
 
         registration.cancel()
         await registration
 
-    async def _keep_registration(self, expires, headers, to_details, from_details, cseq, call_id, **kwargs):
+    async def _keep_registration(self, dialog, expires, headers, to_details, from_details, cseq, call_id, **kwargs):
         try:
             await asyncio.sleep(expires)
             while True:
@@ -183,24 +182,9 @@ class Peer(MutableMapping):
                     else:
                         raise exceptions.RegisterFailed(message)
 
-                await dialog.close()
                 await asyncio.sleep(expires / 2)
-
+                await dialog.close(fast=True)
         except asyncio.CancelledError:
-            async with timeout(10):
-                headers["Expires"] = 0
-                dialog = await self.request(
-                    method='REGISTER',
-                    headers=deepcopy(headers),
-                    call_id=call_id,
-                    cseq=cseq,
-                    to_details=deepcopy(to_details),
-                    from_details=deepcopy(from_details),
-                    **kwargs,
-                )
-                async for message in dialog:
-                    if isinstance(message, Response) and message.status_code == 200:
-                        break
             await dialog.close()
         except Exception:
             LOG.error("Unable to maintain registration for peer: %s", self)
