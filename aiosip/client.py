@@ -227,6 +227,7 @@ class Peer(MutableMapping):
         except Exception:
             LOG.error("Unable to maintain subscription for peer: %s", self)
 
+    @asynccontextmanager
     async def invite(self, *args, sdp=None, headers=None, payload=None, **kwargs):
         if sdp and payload:
             raise TypeError("Only one of 'sdp', 'payload' should be set")
@@ -238,20 +239,10 @@ class Peer(MutableMapping):
                 headers = {"Content-Type": "application/sdp"}
 
         dialog = await self.request('INVITE', *args, headers=headers, payload=payload, **kwargs)
-        try:
-            async for message in dialog:
-                message.dialog = dialog
-                if isinstance(message, Response) and message.status_code == 200:
-                    dialog.ack(message)
-                    yield message
-                elif isinstance(message, Request) and message.method.upper() in ('BYE', 'CANCEL'):
-                    await dialog.reply(message, status_code=200)
-                    yield message
-                    return
-                else:
-                    yield message
-        finally:
-            await dialog.close()
+
+        yield dialog
+
+        await dialog.close()
 
     #########
     # Utils #
