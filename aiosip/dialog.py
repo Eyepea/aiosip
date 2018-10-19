@@ -154,11 +154,12 @@ class DialogBase:
         else:
             return False
 
-    def close_later(self, delay=None):
+    async def close_later(self, delay=None):
         if delay is None:
             delay = 30
-        if self._closing:
+        if self._closing and not self._closing.done():
             self._closing.cancel()
+            await self._closing
 
         async def closure():
             await asyncio.sleep(delay)
@@ -170,11 +171,11 @@ class DialogBase:
         if msg.method in ('REGISTER', 'SUBSCRIBE') and not self.inbound:
             expire = int(msg.headers.get('Expires', 0))
             delay = int(expire * 1.1) if expire else None
-            self.close_later(delay)
+            await self.close_later(delay)
         elif msg.method == 'NOTIFY':
             pass
         else:
-            self.close_later()
+            await self.close_later()
 
     async def _close(self):
         LOG.debug('Closing: %s', self)
@@ -284,7 +285,7 @@ class Dialog(DialogBase):
 
     async def _receive_request(self, msg):
         await self._incoming.put(msg)
-        self._maybe_close(msg)
+        await self._maybe_close(msg)
 
     async def refresh(self, headers=None, expires=1800, *args, **kwargs):
         headers = CIMultiDict(headers or {})
@@ -405,7 +406,7 @@ class InviteDialog(DialogBase):
         if msg.method == 'BYE':
             self._closed = True
 
-        self._maybe_close(msg)
+        await self._maybe_close(msg)
 
     @property
     def state(self):
