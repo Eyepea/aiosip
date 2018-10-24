@@ -162,8 +162,11 @@ class DialogBase:
             await self._closing
 
         async def closure():
-            await asyncio.sleep(delay)
-            await asyncio.shield(self.close())
+            try:
+                await asyncio.sleep(delay)
+                await asyncio.shield(self.close())
+            except asyncio.CancelledError:
+                pass
 
         self._closing = asyncio.create_task(closure())
 
@@ -294,20 +297,23 @@ class Dialog(DialogBase):
         return await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
 
     async def close(self, headers=None, fast=False, *args, **kwargs):
-        if not self._closed:
-            self._closed = True
-            result = None
-            if not fast and not self.inbound and self.original_msg.method in ('REGISTER', 'SUBSCRIBE'):
-                headers = CIMultiDict(headers or {})
-                if 'Expires' not in headers:
-                    headers['Expires'] = 0
-                try:
-                    result = await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
-                finally:
-                    await self._close()
+        try:
+            if not self._closed:
+                self._closed = True
+                result = None
+                if not fast and not self.inbound and self.original_msg.method in ('REGISTER', 'SUBSCRIBE'):
+                    headers = CIMultiDict(headers or {})
+                    if 'Expires' not in headers:
+                        headers['Expires'] = 0
+                    try:
+                        result = await self.request(self.original_msg.method, headers=headers, *args, **kwargs)
+                    finally:
+                        await self._close()
 
-            await self._close()
-            return result
+                await self._close()
+                return result
+        except asyncio.CancelledError:
+            pass
 
     async def notify(self, *args, headers=None, **kwargs):
         headers = CIMultiDict(headers or {})
