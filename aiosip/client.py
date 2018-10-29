@@ -254,6 +254,9 @@ class Peer(MutableMapping):
             if isinstance(message, Response) and message.status_code == 200:
                 dialog.ack(message)
                 yield message
+            elif isinstance(message, Response) and message.status_code == 603:
+                dialog.ack(message)
+                yield message
             elif isinstance(message, Request) and message.method.upper() in ('BYE', 'CANCEL'):
                 await dialog.reply(message, status_code=200)
                 yield message
