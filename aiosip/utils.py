@@ -3,7 +3,7 @@ import string
 import asyncio
 import logging
 import ipaddress
-
+import socket
 
 LOG = logging.getLogger(__name__)
 
@@ -108,8 +108,8 @@ async def get_host_ip(host, dns):
     try:
         return ipaddress.ip_address(host).exploded
     except ValueError:
-        dns = await dns.query(host, 'A')
-        return dns[0].host
+        dns = await dns.gethostbyname(host, socket.AF_INET)
+        return dns.addresses[0]
 
 
 async def get_proxy_peer(dialog, msg):

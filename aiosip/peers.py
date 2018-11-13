@@ -4,6 +4,7 @@ import logging
 import ipaddress
 import websockets
 import aiodns
+import socket
 
 from multidict import CIMultiDict
 
@@ -191,8 +192,8 @@ class BaseConnector:
         try:
             peer_addr = ipaddress.ip_address(peer_addr[0]).exploded, peer_addr[1]
         except ValueError:
-            dns = await self._dns_resolver.query(peer_addr[0], 'A')
-            peer_addr = dns[0].host, peer_addr[1]
+            dns = await self._dns_resolver.gethostbyname(peer_addr[0], socket.AF_INET)
+            peer_addr = dns.addresses[0], peer_addr[1]
 
         if reuse_peer:
             peer = await self._find_peer(peer_addr, local_addr)
@@ -254,8 +255,8 @@ class BaseConnector:
         try:
             addr = ipaddress.ip_address(addr).exploded
         except ValueError:
-            dns = await self._dns_resolver.query(addr, 'A')
-            addr = dns[0].host
+            dns = await self._dns_resolver.gethostbyname(addr, socket.AF_INET)
+            addr = dns.addresses[0]
 
         return addr
 

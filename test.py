@@ -33,35 +33,55 @@ a=fmtp:101 0-15
 a=sendrecv"""
 
 
+os.environ["SIP_HOST"] = '217.182.114.36'
+os.environ["SIP_PORT"] = "10065"
+os.environ["SIP_USERNAME_1"] = "qd.kscpm8n6"
+os.environ["SIP_PASSWORD_1"] = "g2O2PFFDEqVBIm1qbfV"
+os.environ["SIP_USERNAME_2"] = "qd.qs3w4p4x"
+os.environ["SIP_PASSWORD_2"] = "IvZ4921Cv364ebEtCQI"
+
+
 async def main():
 
-    await subscribe(username=os.environ["SIP_USERNAME_1"], password=os.environ["SIP_PASSWORD_1"])
-
     await asyncio.gather(
-        peer1(username=os.environ["SIP_USERNAME_1"], password=os.environ["SIP_PASSWORD_1"]),
-        peer2(username=os.environ["SIP_USERNAME_2"], password=os.environ["SIP_PASSWORD_2"]),
+        subscribe(username=os.environ["SIP_USERNAME_1"], password=os.environ["SIP_PASSWORD_1"]),
+        subscribe(username=os.environ["SIP_USERNAME_2"], password=os.environ["SIP_PASSWORD_2"])
     )
+
+    # await asyncio.gather(
+    #     peer1(username=os.environ["SIP_USERNAME_1"], password=os.environ["SIP_PASSWORD_1"]),
+    #     peer2(username=os.environ["SIP_USERNAME_2"], password=os.environ["SIP_PASSWORD_2"]),
+    # )
 
 
 async def subscribe(username, password):
     async with aiosip.client.Peer(
         host=os.environ["SIP_HOST"],
         port=int(os.environ["SIP_PORT"]),
-        protocol=aiosip.UDP
+        protocol=aiosip.TCP
     ) as peer:
 
-        async with peer.subscribe(
-            from_details=aiosip.Contact.from_header(
-                FROM.format(username=username, host=os.environ["SIP_HOST"], port=os.environ["SIP_PORT"])),
-            to_details=aiosip.Contact.from_header(
-                'sip:461@{host}:{port}'.format(host=os.environ["SIP_HOST"], port=os.environ["SIP_PORT"])),
-            password=password,
-            expires=10,
-            headers={"Event": "dialog", "Accept": "application/dialog-info+xml"}
-        ) as dialog:
+        await asyncio.gather(
+            _subscribe(peer, username=username, password=password, number="1234"),
+            _subscribe(peer, username=username, password=password, number="8050")
+        )
 
-            async for message in dialog:
-                print(message)
+
+async def _subscribe(peer, username, password, number):
+    async with peer.subscribe(
+        from_details=aiosip.Contact.from_header(
+            FROM.format(username=username, host=os.environ["SIP_HOST"], port=os.environ["SIP_PORT"])),
+        to_details=aiosip.Contact.from_header(
+            'sip:{number}@{host}:{port}'.format(host=os.environ["SIP_HOST"], port=os.environ["SIP_PORT"], number=number)),
+        password=password,
+        expires=60,
+        headers={"Event": "dialog", "Accept": "application/dialog-info+xml"}
+    ) as dialog:
+        async for message in dialog:
+            print(message)
+
+            if isinstance(message, aiosip.Request) and message.method == "NOTIFY":
+                await dialog.reply(message, status_code=200)
 
 
 async def peer1(username, password):
