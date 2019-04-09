@@ -10,12 +10,12 @@ from .param import Param
 LOG = logging.getLogger(__name__)
 
 # Regex pattern from p2p-sip project
-URI_PATTERN = re.compile('^(?P<scheme>[a-zA-Z][a-zA-Z0-9\+\-\.]*):'  # scheme
-                         + '(?:(?:(?P<user>[a-zA-Z0-9\-\_\.!\~\*\'\(\)&=\+\$,;\?\/\%]+)'  # user
-                         + '(?::(?P<password>[^:@;\?]+))?)@)?'  # password
-                         + '(?:(?:(?P<host>[^;\?:]*)(?::(?P<port>[\d]+))?))'  # host, port
-                         + '(?:;(?P<params>[^\?]*))?'  # parameters
-                         + '(?:\?(?P<headers>.*))?$')  # headers
+URI_PATTERN = re.compile(r'^(?P<scheme>[a-zA-Z][a-zA-Z0-9\+\-\.]*):'  # scheme
+                         + r'(?:(?:(?P<user>[a-zA-Z0-9\-\_\.!\~\*\'\(\)&=\+\$,;\?\/\%]+)'  # user
+                         + r'(?::(?P<password>[^:@;\?]+))?)@)?'  # password
+                         + r'(?:(?:(?P<host>[^;\?:]*)(?::(?P<port>[\d]+))?))'  # host, port
+                         + r'(?:;(?P<params>[^\?]*))?'  # parameters
+                         + r'(?:\?(?P<headers>.*))?$')  # headers
 
 
 class Uri(MutableMapping):

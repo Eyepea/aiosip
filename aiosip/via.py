@@ -7,10 +7,10 @@ from .param import Param
 
 
 VIA_PATTERNS = [
-    re.compile('SIP/2.0/(?P<protocol>[a-zA-Z]+)'
-               '[ \t]*'
-               '(?P<sentby>[^;]+)'
-               '(?:;(?P<params>.*))'),
+    re.compile(r'SIP/2.0/(?P<protocol>[a-zA-Z]+)'
+               r'[ \t]*'
+               r'(?P<sentby>[^;]+)'
+               r'(?:;(?P<params>.*))'),
 ]
 
 
@@ -29,7 +29,10 @@ class Via(MutableMapping):
 
         sentby_parts = self._via['sentby'].rsplit(':', 1)
         self._via['host'] = sentby_parts[0]
-        self._via['port'] = sentby_parts[1] if len(sentby_parts) > 1 else "5060"
+        if len(sentby_parts) > 1:
+            self._via['port'] = sentby_parts[1]
+        else:
+            self._via['port'] = '5060'
 
     @classmethod
     def from_header(cls, via):
