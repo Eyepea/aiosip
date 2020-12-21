@@ -1,5 +1,5 @@
 ===================
-aiosip (DEPRECATED)
+aiosip `(DEPRECATED) <https://github.com/Eyepea/aiosip/issues/136#issuecomment-748930217>`_
 ===================
 
 .. image:: https://travis-ci.org/Eyepea/aiosip.svg?branch=master
