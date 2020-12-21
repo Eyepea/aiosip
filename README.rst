@@ -1,6 +1,6 @@
-======
-aiosip
-======
+===================
+aiosip (DEPRECATED)
+===================
 
 .. image:: https://travis-ci.org/Eyepea/aiosip.svg?branch=master
     :target:  https://travis-ci.org/Eyepea/aiosip
