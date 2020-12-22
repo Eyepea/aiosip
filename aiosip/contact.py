@@ -11,23 +11,23 @@ from .utils import gen_str
 
 CONTACT_PATTERNS = [
     # unquoted name
-    re.compile('^(?P<name>[a-zA-Z0-9\-\.!%\*_\+`\'~]*)'
-               '[ \t]*'
-               '<(?P<uri>[^>]+)>'
-               '[ \t]*'
-               '(?:;(?P<params>[^\?]*))?'),
+    re.compile(r'^(?P<name>[a-zA-Z0-9\-\.!%\*_\+`\'~]*)'
+               r'[ \t]*'
+               r'<(?P<uri>[^>]+)>'
+               r'[ \t]*'
+               r'(?:;(?P<params>[^\?]*))?'),
     # quoted name
-    re.compile('^(?:"(?P<name>[^"]+)")'
-               '[ \t]*'
-               '<(?P<uri>[^>]+)>'
-               '[ \t]*'
-               '(?:;(?P<params>[^\?]*))?'),
+    re.compile(r'^(?:"(?P<name>[^"]+)")'
+               r'[ \t]*'
+               r'<(?P<uri>[^>]+)>'
+               r'[ \t]*'
+               r'(?:;(?P<params>[^\?]*))?'),
     # no name
-    re.compile('(?P<name>)'
-               '[ \t]*'
-               '(?P<uri>[^ ;]+)'
-               '[ \t]*'
-               '(?:;(?P<params>[^\?]*))?'),
+    re.compile(r'(?P<name>)'
+               r'[ \t]*'
+               r'(?P<uri>[^ ;]+)'
+               r'[ \t]*'
+               r'(?:;(?P<params>[^\?]*))?'),
 ]
 
 

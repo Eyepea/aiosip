@@ -158,5 +158,5 @@ class FutureTransaction(BaseTransaction):
 class UnreliableTransaction(FutureTransaction):
     def close(self):
         if self._running and not self._future.done():
-                self.dialog.cancel(cseq=self.original_msg.cseq)
+            self.dialog.cancel(cseq=self.original_msg.cseq)
         super().close()

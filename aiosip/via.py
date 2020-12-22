@@ -7,10 +7,10 @@ from .param import Param
 
 
 VIA_PATTERNS = [
-    re.compile('SIP/2.0/(?P<protocol>[a-zA-Z]+)'
-               '[ \t]*'
-               '(?P<sentby>[^;]+)'
-               '(?:;(?P<params>.*))'),
+    re.compile(r'SIP/2.0/(?P<protocol>[a-zA-Z]+)'
+               r'[ \t]*'
+               r'(?P<sentby>[^;]+)'
+               r'(?:;(?P<params>.*))'),
 ]
 
 
@@ -27,7 +27,12 @@ class Via(MutableMapping):
         if not isinstance(params, Param):
             self._via['params'] = Param(self._via['params'])
 
-        self._via['host'], self._via['port'] = self._via['sentby'].rsplit(':', 1)
+        sentby_parts = self._via['sentby'].rsplit(':', 1)
+        self._via['host'] = sentby_parts[0]
+        if len(sentby_parts) > 1:
+            self._via['port'] = sentby_parts[1]
+        else:
+            self._via['port'] = '5060'
 
     @classmethod
     def from_header(cls, via):
@@ -35,8 +40,7 @@ class Via(MutableMapping):
             m = s.match(via)
             if m:
                 return cls(m.groupdict())
-        else:
-            raise ValueError('Not valid via address')
+        raise ValueError('Not valid via address')
 
     # MutableMapping API
     def __eq__(self, other):

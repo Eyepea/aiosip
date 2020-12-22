@@ -115,7 +115,6 @@ class DialogBase:
 
     def ack(self, msg, headers=None, *args, **kwargs):
         headers = CIMultiDict(headers or {})
-
         headers['Via'] = msg.headers['Via']
         ack = self._prepare_request('ACK', cseq=msg.cseq, to_details=msg.to_details, headers=headers, *args, **kwargs)
         self.peer.send_message(ack)
@@ -136,17 +135,24 @@ class DialogBase:
 
     def validate_auth(self, message, password):
         if isinstance(message.auth, AuthorizationAuth) and self.auth.validate_authorization(
-            message.auth,
-            password=password,
-            username=message.auth['username'],
-            uri=message.auth['uri'],
-            payload=message.payload
+                message.auth,
+                password=password,
+                username=message.auth['username'],
+                uri=message.auth['uri'],
+                payload=message.payload
         ):
             return True
         elif message.method == 'CANCEL':
             return True
         else:
             return False
+
+    async def recv(self):
+        raise NotImplementedError("recv() needs class-specific implementation")
+
+    async def close(self):
+        # TODO: All close() implementations have different set of parameters
+        raise NotImplementedError("close() needs class-specific implementation")
 
     def close_later(self, delay=None):
         if delay is None:
@@ -183,7 +189,7 @@ class DialogBase:
         # Should not be necessary once dialog are correctly tracked
         try:
             del self.app._dialogs[self.dialog_id]
-        except KeyError as e:
+        except KeyError:
             pass
 
     def _connection_lost(self):
@@ -232,6 +238,8 @@ class DialogBase:
 
         headers['Call-ID'] = self.call_id
         headers['Via'] = request.headers['Via']
+        if 'Record-Route' in request.headers:
+            headers['Record-Route'] = request.headers['Record-Route']
 
         msg = Response(
             status_code=status_code,
