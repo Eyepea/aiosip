@@ -69,10 +69,7 @@ class BaseTransaction:
             self.authentification.cancel()
             self.authentification = None
 
-        if msg.method.upper() == 'REGISTER':
-            username = msg.to_details['uri']['user']
-        else:
-            username = msg.from_details['uri']['user']
+        username = msg.from_details['uri']['user']
 
         self.original_msg.cseq += 1
         self.original_msg.headers['Authorization'] = msg.auth.generate_authorization(
