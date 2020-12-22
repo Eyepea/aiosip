@@ -42,6 +42,8 @@ class Auth(MutableMapping):
             for k, v in kwargs.items():
                 if k == 'algorithm':
                     args.append('%s=%s' % (k, v))
+                elif k == 'nc':
+                    args.append('%s=%08x' % (k, int(v)))
                 else:
                     args.append('%s="%s"' % (k, v))
             r += ', '.join(args)
@@ -117,7 +119,7 @@ class Auth(MutableMapping):
         return md5digest(
             ha1,
             self['nonce'],
-            nonce_count or self['nc'],
+            '%08x' % int(nonce_count or self['nc']),
             cnonce or self['cnonce'],
             self['qop'],
             ha2)
